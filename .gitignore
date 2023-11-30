@@ -22,3 +22,7 @@ build/
 *~
 lib/
 
+cmake-build-debug-system
+.idea
+Examples/RGB-D/.DS_Store
+.DS_Store

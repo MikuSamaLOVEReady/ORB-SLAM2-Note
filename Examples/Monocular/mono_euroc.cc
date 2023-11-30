@@ -18,7 +18,7 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-
+#include <opencv2/imgcodecs/legacy/constants_c.h> //找不到CV_LOAD_IMAGE_UNCHANGED
 #include<iostream>
 #include<algorithm>
 #include<fstream>

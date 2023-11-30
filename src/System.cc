@@ -58,7 +58,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
 
 
-    //Load ORB Vocabulary
+    //Load ORB Vocabulary TODO
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
     mpVocabulary = new ORBVocabulary();
@@ -71,13 +71,13 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
     cout << "Vocabulary loaded!" << endl << endl;
 
-    //Create KeyFrame Database
+    //Create KeyFrame Database TODO
     mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
 
-    //Create the Map
+    ///Create the Map
     mpMap = new Map();
 
-    //Create Drawers. These are used by the Viewer
+    //Create Drawers. These are used by the Viewer TODO
     mpFrameDrawer = new FrameDrawer(mpMap);
     mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
 
@@ -175,9 +175,11 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
+        //开始定位
         if(mbActivateLocalizationMode)
         {
-            mpLocalMapper->RequestStop();
+
+            mpLocalMapper->RequestStop(); //先暂停 局部mapping 等待画完图
 
             // Wait until Local Mapping has effectively stopped
             while(!mpLocalMapper->isStopped())
@@ -185,9 +187,11 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
                 usleep(1000);
             }
 
-            mpTracker->InformOnlyTracking(true);
+            mpTracker->InformOnlyTracking(true); // 开始继续tracking 但不建图
             mbActivateLocalizationMode = false;
         }
+
+        //停止定位
         if(mbDeactivateLocalizationMode)
         {
             mpTracker->InformOnlyTracking(false);
