@@ -43,10 +43,10 @@ public:
     FrameDrawer(Map* pMap);
 
     // Update info from the last processed frame.
-    void Update(Tracking *pTracker);
+    void Update(Tracking *pTracker); //Takcing 调用 什么时候调用这个？
 
     // Draw last processed frame.
-    cv::Mat DrawFrame();
+    cv::Mat DrawFrame(); //
 
 protected:
 
@@ -65,7 +65,7 @@ protected:
 
     Map* mpMap;
 
-    std::mutex mMutex;
+    std::mutex mMutex; //这里为什么
 };
 
 } //namespace ORB_SLAM

@@ -86,8 +86,8 @@ public:
         LOST=3
     };
 
-    eTrackingState mState;
-    eTrackingState mLastProcessedState;
+    eTrackingState mState;   //tracking 线程当前的状态
+    eTrackingState mLastProcessedState; // ？？作啥的？
 
     // Input sensor
     int mSensor;
@@ -148,7 +148,7 @@ protected:
     // points in the map. Still tracking will continue if there are enough matches with temporal points.
     // In that case we are doing visual odometry. The system will try to do relocalization to recover
     // "zero-drift" localization to the map.
-    bool mbVO;
+    bool mbVO;   // 需要与地图中的point对比？ 如果地图中没有，但仍然
 
     //Other Thread Pointers
     LocalMapping* mpLocalMapper;

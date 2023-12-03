@@ -166,13 +166,13 @@ void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText)
 
 void FrameDrawer::Update(Tracking *pTracker)
 {
-    unique_lock<mutex> lock(mMutex);
-    pTracker->mImGray.copyTo(mIm);
-    mvCurrentKeys=pTracker->mCurrentFrame.mvKeys;
-    N = mvCurrentKeys.size();
+    unique_lock<mutex> lock(mMutex);                // 这里是为了对Tracking线程做保护
+    pTracker->mImGray.copyTo(mIm);                  // tacking中有一个灰度图？ 传递给FD 的mim中？
+    mvCurrentKeys=pTracker->mCurrentFrame.mvKeys;   // 复制当前帧 tacker中的 特征点  std::vector<cv::KeyPoint>
+    N = mvCurrentKeys.size();                       // N = 统计特征点个数
     mvbVO = vector<bool>(N,false);
     mvbMap = vector<bool>(N,false);
-    mbOnlyTracking = pTracker->mbOnlyTracking;
+    mbOnlyTracking = pTracker->mbOnlyTracking;      // tacking thread的状态被同步？
 
 
     if(pTracker->mLastProcessedState==Tracking::NOT_INITIALIZED)
@@ -184,15 +184,15 @@ void FrameDrawer::Update(Tracking *pTracker)
     {
         for(int i=0;i<N;i++)
         {
-            MapPoint* pMP = pTracker->mCurrentFrame.mvpMapPoints[i];
+            MapPoint* pMP = pTracker->mCurrentFrame.mvpMapPoints[i]; //???? 存疑问如果Map == null 则表示当前特征点与地图中没有3D相对应
             if(pMP)
             {
-                if(!pTracker->mCurrentFrame.mvbOutlier[i])
+                if(!pTracker->mCurrentFrame.mvbOutlier[i]) // 在optimizer中，当前帧会剔除一些特征点，他们与运动关系不相符
                 {
                     if(pMP->Observations()>0)
-                        mvbMap[i]=true;
+                        mvbMap[i]=true; // 被地图所观察到
                     else
-                        mvbVO[i]=true;
+                        mvbVO[i]=true;  // 被VO所观察到
                 }
             }
         }
