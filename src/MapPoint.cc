@@ -102,6 +102,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
         return;
     mObservations[pKF]=idx;
 
+    /// 这在做啥？
     if(pKF->mvuRight[idx]>=0)
         nObs+=2;
     else
@@ -123,7 +124,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF)
 
             mObservations.erase(pKF);
 
-            if(mpRefKF==pKF)
+            if(mpRefKF==pKF)  ///TODO：参考帧的优化
                 mpRefKF=mObservations.begin()->first;
 
             // If only 2 observations or less, discard point
@@ -151,6 +152,7 @@ int MapPoint::Observations()
 void MapPoint::SetBadFlag()
 {
     map<KeyFrame*,size_t> obs;
+    /// 逻辑上删除地图点
     {
         unique_lock<mutex> lock1(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPos);
@@ -158,10 +160,12 @@ void MapPoint::SetBadFlag()
         obs = mObservations;
         mObservations.clear();
     }
+
+    /// 真实删除地图点（物理上
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
-        pKF->EraseMapPointMatch(mit->second);
+        pKF->EraseMapPointMatch(mit->second);   /// 从对应关键帧中删除，本mappoint的Index
     }
 
     mpMap->EraseMapPoint(this);
@@ -174,6 +178,8 @@ MapPoint* MapPoint::GetReplaced()
     return mpReplaced;
 }
 
+/// 将（当前较差特征点）更新为新点
+/// 【Replace也会】
 void MapPoint::Replace(MapPoint* pMP)
 {
     if(pMP->mnId==this->mnId)
@@ -189,18 +195,20 @@ void MapPoint::Replace(MapPoint* pMP)
         mbBad=true;
         nvisible = mnVisible;
         nfound = mnFound;
-        mpReplaced = pMP;
+        mpReplaced = pMP;   /// 新地图点进来后，
     }
 
+    /// 遍历旧mappoint的观测frame
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         // Replace measurement in keyframe
         KeyFrame* pKF = mit->first;
-
+        /// 如果新的地图点，也在旧地图点的关键帧中出现了，则更新对应、关键帧
         if(!pMP->IsInKeyFrame(pKF))
         {
             pKF->ReplaceMapPointMatch(mit->second, pMP);
             pMP->AddObservation(pKF,mit->second);
+            /// mit->second 关键帧的ID
         }
         else
         {
@@ -327,8 +335,11 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     return (mObservations.count(pKF));
 }
 
+
+/// 【地图点本身变化】「物体本身移动」 或 【关键帧对该地图点观测】「相机移动」发生变化
 void MapPoint::UpdateNormalAndDepth()
 {
+    /// 读取能观察到本地图点的所有 KeyFrame 信息
     map<KeyFrame*,size_t> observations;
     KeyFrame* pRefKF;
     cv::Mat Pos;
@@ -339,7 +350,7 @@ void MapPoint::UpdateNormalAndDepth()
             return;
         observations=mObservations;
         pRefKF=mpRefKF;
-        Pos = mWorldPos.clone();
+        Pos = mWorldPos.clone();    /// 本地图点的世界坐标
     }
 
     if(observations.empty())
@@ -351,13 +362,15 @@ void MapPoint::UpdateNormalAndDepth()
     {
         KeyFrame* pKF = mit->first;
         cv::Mat Owi = pKF->GetCameraCenter();
-        cv::Mat normali = mWorldPos - Owi;
-        normal = normal + normali/cv::norm(normali);
+        cv::Mat normali = mWorldPos - Owi; /// 从【每一个key帧】指向当前地图点
+        normal = normal + normali/cv::norm(normali);    /// 该方向的单位向量累加
         n++;
     }
 
+    /// 相机中心坐标【？是否是世界坐标？ 高概率是】
     cv::Mat PC = Pos - pRefKF->GetCameraCenter();
     const float dist = cv::norm(PC);
+    /// 根据参考帧来计算，最大、最小观测距离
     const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave;
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
     const int nLevels = pRefKF->mnScaleLevels;

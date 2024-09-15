@@ -60,7 +60,7 @@ public:
     // Covisibility graph functions
     void AddConnection(KeyFrame* pKF, const int &weight);
     void EraseConnection(KeyFrame* pKF);
-    void UpdateConnections();
+    void UpdateConnections();           /// 基于当前keyframe -> 对mappoint 的观测， 构建共视图
     void UpdateBestCovisibles();
     std::set<KeyFrame *> GetConnectedKeyFrames();
     std::vector<KeyFrame* > GetVectorCovisibleKeyFrames();
@@ -102,7 +102,7 @@ public:
     void SetErase();
 
     // Set/check bad flag
-    void SetBadFlag();
+    void SetBadFlag();      ///     真正执行删除的操作
     bool isBad();
 
     // Compute Scene Depth (q=2 median). Used in monocular.
@@ -200,7 +200,7 @@ protected:
     cv::Mat Cw; // Stereo middel point. Only for visualization
 
     // MapPoints associated to keypoints
-    std::vector<MapPoint*> mvpMapPoints;
+    std::vector<MapPoint*> mvpMapPoints;            /// 与特征点匹配的Mappoint
 
     // BoW
     KeyFrameDatabase* mpKeyFrameDB;
@@ -209,19 +209,20 @@ protected:
     // Grid over the image to speed up feature matching
     std::vector< std::vector <std::vector<size_t> > > mGrid;
 
-    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;
-    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;
-    std::vector<int> mvOrderedWeights;
+    ////这三个变量完成维护共视图的任务
+    std::map<KeyFrame*,int> mConnectedKeyFrameWeights; ///这里最好用unordered     /// 当前keyframe与其他kf的【权重？】 这是啥意思
+    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;    /// 共视keyframe的 权重从大到小【 观测到相同的地图点越多，权重越大 】
+    std::vector<int> mvOrderedWeights;                      /// 对应权重从大到小
 
     // Spanning Tree and Loop Edges
-    bool mbFirstConnection;
-    KeyFrame* mpParent;
-    std::set<KeyFrame*> mspChildrens;
+    bool mbFirstConnection;                            /// 最小生成树有关内容
+    KeyFrame* mpParent;                                /// 当前这个KeyFrame在生成树中的父节点
+    std::set<KeyFrame*> mspChildrens;                  /// 多叉树
     std::set<KeyFrame*> mspLoopEdges;
 
     // Bad flags
-    bool mbNotErase;
-    bool mbToBeErased;
+    bool mbNotErase;                                    /// 参与回环检测的KF ，它为true，则无法erase
+    bool mbToBeErased;                                  /// 是否本来该被删了，但是由于是NotErase，导致了无法
     bool mbBad;    
 
     float mHalfBaseline; // Only for visualization

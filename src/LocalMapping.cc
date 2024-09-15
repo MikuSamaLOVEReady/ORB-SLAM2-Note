@@ -52,20 +52,24 @@ void LocalMapping::Run()
     while(1)
     {
         // Tracking will see that Local Mapping is busy
-        SetAcceptKeyFrames(false);
+        SetAcceptKeyFrames(false);          ///阻止Tracking进行？
 
         // Check if there are keyframes in the queue
         if(CheckNewKeyFrames())
         {
             // BoW conversion and insertion in Map
+            /// 消费队列
             ProcessNewKeyFrame();
 
             // Check recent MapPoints
+            /// 3。剔除新创建的MP中劣质的
             MapPointCulling();
 
             // Triangulate new MapPoints
+            /// 4。创建地图点
             CreateNewMapPoints();
 
+            /// 5。 为什么队列有可能变成空的呢？ A：应该是2。步骤中消费了之后，当最后一个KF被消费掉后
             if(!CheckNewKeyFrames())
             {
                 // Find more matches in neighbor keyframes and fuse point duplications
@@ -74,7 +78,7 @@ void LocalMapping::Run()
 
             mbAbortBA = false;
 
-            if(!CheckNewKeyFrames() && !stopRequested())
+            if(!CheckNewKeyFrames() && !stopRequested())    ///如果没有剩余
             {
                 // Local BA
                 if(mpMap->KeyFramesInMap()>2)
@@ -84,6 +88,7 @@ void LocalMapping::Run()
                 KeyFrameCulling();
             }
 
+            /// 将KF 加入到回环检测中
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
         }
         else if(Stop())
@@ -100,12 +105,12 @@ void LocalMapping::Run()
         ResetIfRequested();
 
         // Tracking will see that Local Mapping is busy
-        SetAcceptKeyFrames(true);
+        SetAcceptKeyFrames(true);           ///
 
         if(CheckFinish())
             break;
 
-        usleep(3000);
+        usleep(3000);                           ///  每过3s才会检查 keyframes 再绘制一遍
     }
 
     SetFinish();
@@ -134,6 +139,7 @@ void LocalMapping::ProcessNewKeyFrame()
     }
 
     // Compute Bags of Words structures
+    /// 计算KF的词袋向量
     mpCurrentKeyFrame->ComputeBoW();
 
     // Associate MapPoints to the new keyframe and update normal and descriptor
@@ -146,6 +152,8 @@ void LocalMapping::ProcessNewKeyFrame()
         {
             if(!pMP->isBad())
             {
+                /// 新的KF中有两类地图点
+                /// 1. 通过serarchByXXX 在tracking时匹配的到【这些地图点本身已经存在、只需要这些old MP 添加对当前KF的观测】
                 if(!pMP->IsInKeyFrame(mpCurrentKeyFrame))
                 {
                     pMP->AddObservation(mpCurrentKeyFrame, i);
@@ -154,6 +162,7 @@ void LocalMapping::ProcessNewKeyFrame()
                 }
                 else // this can only happen for new stereo points inserted by the Tracking
                 {
+                    /// 2. 当地图点是 特征点匹配后 新产生的，则将入Recent容器为后续 剔除做铺垫
                     mlpRecentAddedMapPoints.push_back(pMP);
                 }
             }
@@ -161,9 +170,11 @@ void LocalMapping::ProcessNewKeyFrame()
     }    
 
     // Update links in the Covisibility Graph
+    /// 更新共视图关系
     mpCurrentKeyFrame->UpdateConnections();
 
     // Insert Keyframe in Map
+    /// 将KF插入map
     mpMap->AddKeyFrame(mpCurrentKeyFrame);
 }
 
@@ -183,21 +194,21 @@ void LocalMapping::MapPointCulling()
     while(lit!=mlpRecentAddedMapPoints.end())
     {
         MapPoint* pMP = *lit;
-        if(pMP->isBad())
+        if(pMP->isBad())    /// 本新MP 在其他thread 被
         {
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
-        else if(pMP->GetFoundRatio()<0.25f )
+        else if(pMP->GetFoundRatio()<0.25f )    /// 召回率 实际/理论观察到的MP个数 < 02.5
+        {
+            pMP->SetBadFlag();  /// 剔除
+            lit = mlpRecentAddedMapPoints.erase(lit);
+        }
+        else if( ((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs) /// 在创建的3帧内，观测到本MP的个数<2
         {
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
-        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs)
-        {
-            pMP->SetBadFlag();
-            lit = mlpRecentAddedMapPoints.erase(lit);
-        }
-        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=3)
+        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=3)   /// 经过了3个KF的考察， 则认为是好地图点
             lit = mlpRecentAddedMapPoints.erase(lit);
         else
             lit++;

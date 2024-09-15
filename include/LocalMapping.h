@@ -1,3 +1,4 @@
+
 /**
 * This file is part of ORB-SLAM2.
 *
@@ -104,11 +105,11 @@ protected:
     LoopClosing* mpLoopCloser;
     Tracking* mpTracker;
 
-    std::list<KeyFrame*> mlNewKeyFrames;
+    std::list<KeyFrame*> mlNewKeyFrames;    /// tracking线程 向 local_mapping 插入时的 缓冲队列
 
     KeyFrame* mpCurrentKeyFrame;
 
-    std::list<MapPoint*> mlpRecentAddedMapPoints;
+    std::list<MapPoint*> mlpRecentAddedMapPoints;   /// erase
 
     std::mutex mMutexNewKFs;
 

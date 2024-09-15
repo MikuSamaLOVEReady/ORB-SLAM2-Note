@@ -60,10 +60,11 @@ public:
 protected:
 
   // Associated vocabulary
-  const ORBVocabulary* mpVoc;
+  const ORBVocabulary* mpVoc;                       ///将图相转化成具有语义的东西  --> 能够起到快速匹配的目的
 
   // Inverted file
-  std::vector<list<KeyFrame*> > mvInvertedFile;
+  /// 根据 描述子descripter【作为index ，index =0 就代表0号描述子】
+  std::vector<list<KeyFrame*> > mvInvertedFile;     ///
 
   // Mutex
   std::mutex mMutex;

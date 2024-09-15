@@ -113,7 +113,7 @@ void Viewer::Run()
             bFollow = false;
         }
 
-        if(menuLocalizationMode && !bLocalizationMode)
+        if(menuLocalizationMode && !bLocalizationMode) /// 如果菜单刚刚被勾选了、并且 之前不是局部定位模式
         {
             mpSystem->ActivateLocalizationMode();
             bLocalizationMode = true;

@@ -84,6 +84,7 @@ public:
     bool isInFrustum(MapPoint* pMP, float viewingCosLimit);
 
     // Compute the cell of a keypoint (return false if outside the grid)
+    // 将uv值 -> grid x y
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
     vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
@@ -103,25 +104,26 @@ public:
     ORBVocabulary* mpORBvocabulary;
 
     // Feature extractor. The right is used only in the stereo case.
-    ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
+    ORBextractor* mpORBextractorLeft, *mpORBextractorRight; ///
 
     // Frame timestamp.
     double mTimeStamp;
 
-    // Calibration matrix and OpenCV distortion parameters.
-    cv::Mat mK;
-    static float fx;
+    // Calibration matrix and OpenCV distortion parameters. FINISH
+    cv::Mat mK;                 // TODO:可以优化一下
+    static float fx;            /// 内参 只在第一个frame 出现时被给值，
     static float fy;
     static float cx;
     static float cy;
     static float invfx;
     static float invfy;
-    cv::Mat mDistCoef;
+    cv::Mat mDistCoef;          /// 相机的畸变矫正参数
 
-    // Stereo baseline multiplied by fx.
-    float mbf;
+    // Stereo baseline multiplied by fx. 基线乘以相机的焦距
+    float mbf;      ///  b * f 本质上是为了方便求深度
 
     // Stereo baseline in meters.
+    /// mb = mbf/fx
     float mb;
 
     // Threshold close/far points. Close points are inserted from 1 view.
@@ -129,46 +131,50 @@ public:
     float mThDepth;
 
     // Number of KeyPoints.
-    int N;
+    int N;  ///  当前帧中的特征点个数
 
     // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
     // In the stereo case, mvKeysUn is redundant as images must be rectified.
     // In the RGB-D case, RGB images can be distorted.
-    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
-    std::vector<cv::KeyPoint> mvKeysUn;
+    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;     /// [矫正前]这些vector的下标 =「特征点ID，也是mappoint的ID」 // mvKeys左目， mvKeysRight右目   //存储ORB提取出得特征点uv【位置】
+    std::vector<cv::KeyPoint> mvKeysUn;                /// 矫正后的关键点uv坐标
 
     // Corresponding stereo coordinate and depth for each keypoint.
     // "Monocular" keypoints have a negative value.
-    std::vector<float> mvuRight;
-    std::vector<float> mvDepth;
+    /// 没有 只有u没有v 是因为纵坐标 与mvKeys[i] 的纵坐标相同
+    std::vector<float> mvuRight; /// （左图）关键点的在 右目相机的水平像素坐标// 只用水平距离可以计算深度 ： 只在双目时期有用
+    std::vector<float> mvDepth;  ///  （双目可以估计出、深度）
 
     // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
     DBoW2::FeatureVector mFeatVec;
 
     // ORB descriptor, each row associated to a keypoint.
+    // 【将特征点的位置编码成 二进制描述子】
     cv::Mat mDescriptors, mDescriptorsRight;
 
     // MapPoints associated to keypoints, NULL pointer if no association.
-    std::vector<MapPoint*> mvpMapPoints; //MapPoint记录 地图上的点与当前Frame中的特征点关联个数
+    std::vector<MapPoint*> mvpMapPoints; ///  _Frame中的特征点 能关联到 地图中的landmark（地图点）的个数
 
     // Flag to identify outlier associations.
-    std::vector<bool> mvbOutlier;
+    std::vector<bool> mvbOutlier;       /// 是否是外点
 
-    // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
-    static float mfGridElementWidthInv;
-    static float mfGridElementHeightInv;
+    // Keypoints are assigned to cells in a grid to reduce matching
+    // complexity when projecting MapPoints.
+    // 特征点ID 被放在一个grand中 64 x 48
+    static float mfGridElementWidthInv;   // 每一个grid的宽度
+    static float mfGridElementHeightInv;  //
     std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
 
     // Camera pose.
-    cv::Mat mTcw;
+    cv::Mat mTcw;                                   ///最关键的！ World->Camera camera Pos
 
     // Current and Next Frame id.
     static long unsigned int nNextId;
     long unsigned int mnId;
 
     // Reference Keyframe.
-    KeyFrame* mpReferenceKF;
+    KeyFrame* mpReferenceKF;                         /// 与Cur_Frame 拥有最多相似部分的Frame
 
     // Scale pyramid info.
     int mnScaleLevels;
@@ -180,12 +186,12 @@ public:
     vector<float> mvInvLevelSigma2;
 
     // Undistorted Image Bounds (computed once).
-    static float mnMinX;
-    static float mnMaxX;
-    static float mnMinY;
-    static float mnMaxY;
+    static float mnMinX;    // 去畸变后图像中特征点的最小 x 坐标。
+    static float mnMaxX;    // 去畸变后图像中特征点的最大 x 坐标。
+    static float mnMinY;    // 去畸变后图像中特征点的最小 y 坐标。
+    static float mnMaxY;    // 去畸变后图像中特征点的最大 y 坐标。
 
-    static bool mbInitialComputations;
+    static bool mbInitialComputations; //只为第一个出现的frame 做操作？
 
 
 private:
@@ -204,7 +210,7 @@ private:
     // Rotation, translation and camera center
     cv::Mat mRcw;
     cv::Mat mtcw;
-    cv::Mat mRwc;
+    cv::Mat mRwc;           /// 什么时候被确定的？ 是在解出 Tcw的时候吗？
     cv::Mat mOw; //==mtwc
 };
 

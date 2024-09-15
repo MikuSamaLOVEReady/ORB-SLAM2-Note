@@ -49,7 +49,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     else if(mSensor==RGBD)
         cout << "RGB-D" << endl;
 
-    //Check settings file
+    //Check settings file 读的是配置信息
     cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
     if(!fsSettings.isOpened())
     {
@@ -182,6 +182,7 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
             mpLocalMapper->RequestStop(); //先暂停 局部mapping 等待画完图
 
             // Wait until Local Mapping has effectively stopped
+            /// 轮训查看 local mapper是否已经停止 ， 如果没有停止，mainThread- tracking线程就再sleep 1秒
             while(!mpLocalMapper->isStopped())
             {
                 usleep(1000);
@@ -203,11 +204,11 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
     // Check reset
     {
     unique_lock<mutex> lock(mMutexReset);
-    if(mbReset)
-    {
-        mpTracker->Reset();
-        mbReset = false;
-    }
+        if(mbReset)
+        {
+            mpTracker->Reset();
+            mbReset = false;
+        }
     }
 
     cv::Mat Tcw = mpTracker->GrabImageRGBD(im,depthmap,timestamp);

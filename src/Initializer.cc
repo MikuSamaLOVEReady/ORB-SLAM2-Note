@@ -46,10 +46,12 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
 {
     // Fill structures with current keypoints and matches with reference frame
     // Reference Frame: 1, Current Frame: 2
+    /// 「单目初始化时 需要前后2个Frame」
     mvKeys2 = CurrentFrame.mvKeysUn;
 
+    ///1. 构造前后 特征点匹配信息
     mvMatches12.clear();
-    mvMatches12.reserve(mvKeys2.size());
+    mvMatches12.reserve(mvKeys2.size());    /// mvMatches12只保存匹配上的特征点对
     mvbMatched1.resize(mvKeys1.size());
     for(size_t i=0, iend=vMatches12.size();i<iend; i++)
     {
@@ -62,6 +64,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
             mvbMatched1[i]=false;
     }
 
+    /// step2. 准备RANSAC运算中需要的特征点对
     const int N = mvMatches12.size();
 
     // Indices for minimum set selection
@@ -78,12 +81,13 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     mvSets = vector< vector<size_t> >(mMaxIterations,vector<size_t>(8,0));
 
     DUtils::Random::SeedRandOnce(0);
-
+        /// RANSAC 迭代200次 , 每次用到8对点
     for(int it=0; it<mMaxIterations; it++)
     {
         vAvailableIndices = vAllIndices;
 
         // Select a minimum set
+        /// [ 这里8个点的index是随机选出 ]
         for(size_t j=0; j<8; j++)
         {
             int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);
@@ -97,6 +101,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     }
 
     // Launch threads to compute in parallel a fundamental matrix and a homography
+    /// 计算H 和 F 矩阵 ---> 通过
     vector<bool> vbMatchesInliersH, vbMatchesInliersF;
     float SH, SF;
     cv::Mat H, F;
@@ -109,7 +114,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     threadF.join();
 
     // Compute ratio of scores
-    float RH = SH/(SH+SF);
+    float RH = SH/(SH+SF); /// 比较两个矩阵的得分，用得分大的来还原运动信息（R、T）
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
     if(RH>0.40)
@@ -196,6 +201,7 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
     float currentScore;
 
     // Perform all RANSAC iterations and save the solution with highest score
+    ///
     for(int it=0; it<mMaxIterations; it++)
     {
         // Select a minimum set
@@ -203,13 +209,13 @@ void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, 
         {
             int idx = mvSets[it][j];
 
-            vPn1i[j] = vPn1[mvMatches12[idx].first];
-            vPn2i[j] = vPn2[mvMatches12[idx].second];
+            vPn1i[j] = vPn1[mvMatches12[idx].first];    /// first存储在参考帧1中的特征点索引
+            vPn2i[j] = vPn2[mvMatches12[idx].second];   /// second存储在当前帧2中的特征点索引
         }
 
-        cv::Mat Fn = ComputeF21(vPn1i,vPn2i);
+        cv::Mat Fn = ComputeF21(vPn1i,vPn2i); /// step3. 八点法计算单应矩阵H
 
-        F21i = T2t*Fn*T1;
+        F21i = T2t*Fn*T1;   /// // step4. 恢复原始尺度
 
         currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma);
 

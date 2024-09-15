@@ -238,10 +238,11 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
+    ///  优化器初始化
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
 
-    linearSolver = new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
+    linearSolver = new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();      // 线性求解器类型
 
     g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
 
@@ -250,7 +251,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
     int nInitialCorrespondences=0;
 
-    // Set Frame vertex
+    /// Set Frame vertex     【图优化 -- 图顶点 = 特征点】
     g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
     vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
     vSE3->setId(0);
@@ -258,13 +259,15 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     optimizer.addVertex(vSE3);
 
     // Set MapPoint vertices
-    const int N = pFrame->N;
+    const int N = pFrame->N;                                        ///当前Frame的特征点（地图点）
 
+    /// 图上的边（edge）构造 --- Mono版本
     vector<g2o::EdgeSE3ProjectXYZOnlyPose*> vpEdgesMono;
     vector<size_t> vnIndexEdgeMono;
     vpEdgesMono.reserve(N);
     vnIndexEdgeMono.reserve(N);
 
+    /// 图上的边（edge）构造 --- stereo版本
     vector<g2o::EdgeStereoSE3ProjectXYZOnlyPose*> vpEdgesStereo;
     vector<size_t> vnIndexEdgeStereo;
     vpEdgesStereo.reserve(N);
@@ -273,20 +276,20 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     const float deltaMono = sqrt(5.991);
     const float deltaStereo = sqrt(7.815);
 
-
+    ///从 frame的特征点 ->获取 图优化 edege 信息
     {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);
-
+    /// 每个特征点都是一个edge （仅仅是读取这些data 并没有改变mappoint中的data）
     for(int i=0; i<N; i++)
     {
-        MapPoint* pMP = pFrame->mvpMapPoints[i];
+        MapPoint* pMP = pFrame->mvpMapPoints[i];            /// frame中的特征 需要在地图中有对应的 实际Mappoint才行
         if(pMP)
         {
             // Monocular observation
             if(pFrame->mvuRight[i]<0)
             {
                 nInitialCorrespondences++;
-                pFrame->mvbOutlier[i] = false;
+                pFrame->mvbOutlier[i] = false;              ///
 
                 Eigen::Matrix<double,2,1> obs;
                 const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
@@ -317,10 +320,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 vpEdgesMono.push_back(e);
                 vnIndexEdgeMono.push_back(i);
             }
-            else  // Stereo observation
+            else  /// Stereo observation  观察值作为edge操作
             {
-                nInitialCorrespondences++;
-                pFrame->mvbOutlier[i] = false;
+                nInitialCorrespondences++;                  /// 有多少值data（完全取决于，特征点在地图中是否可见）
+                pFrame->mvbOutlier[i] = false;              /// 设置frame外点问题
 
                 //SET EDGE
                 Eigen::Matrix<double,3,1> obs;
@@ -328,7 +331,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 const float &kp_ur = pFrame->mvuRight[i];
                 obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
 
-                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
+                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();   ///这个类型g2o自带了
 
                 e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
                 e->setMeasurement(obs);
@@ -345,7 +348,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->cx = pFrame->cx;
                 e->cy = pFrame->cy;
                 e->bf = pFrame->mbf;
-                cv::Mat Xw = pMP->GetWorldPos();
+                cv::Mat Xw = pMP->GetWorldPos();                                            /// 获取Mappoint的3D空间坐标
                 e->Xw[0] = Xw.at<float>(0);
                 e->Xw[1] = Xw.at<float>(1);
                 e->Xw[2] = Xw.at<float>(2);
@@ -360,7 +363,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     }
     }
 
-
+    ///  如果有3特征点及以上能在地图中找到对应的点
     if(nInitialCorrespondences<3)
         return 0;
 
@@ -371,31 +374,35 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     const int its[4]={10,10,10,10};    
 
     int nBad=0;
+    /// 启动迭代优化一共4次 （迭代优化中，会产生坏点）    ｜｜ 以及确定 mvbOutlier ,
     for(size_t it=0; it<4; it++)
     {
-
+        /// 初始化相机位姿的估计
         vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
         optimizer.initializeOptimization(0);
-        optimizer.optimize(its[it]);
+        optimizer.optimize(its[it]);    /// 执行优化【其实已经能算 pose】
 
-        nBad=0;
+
+        /// 对优化后的结果做后处理， 把一些错误匹配的情况所带来的影响降低
+        nBad=0;                                  /// 特征点 outfiler的 个数
+        /// 单目 优化 【遍历所有的edge】
         for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
         {
-            g2o::EdgeSE3ProjectXYZOnlyPose* e = vpEdgesMono[i];
+            g2o::EdgeSE3ProjectXYZOnlyPose* e = vpEdgesMono[i];     /// 获取edge内容
 
-            const size_t idx = vnIndexEdgeMono[i];
+            const size_t idx = vnIndexEdgeMono[i];                  /// 获取index
 
             if(pFrame->mvbOutlier[idx])
             {
-                e->computeError();
+                e->computeError();                                  /// 计算该边的残差。这一步可能是为了确保所有的 outlier 都经过残差计算，以便在后续的处理中使用。
             }
 
-            const float chi2 = e->chi2();
-
-            if(chi2>chi2Mono[it])
+            const float chi2 = e->chi2();                           /// 获取当前边的残差值。
+                                                                    /// 通过这种残差鲁棒核操作， 可以把错误匹配的情况剔除
+            if(chi2>chi2Mono[it])                                   /// 如果残差值 chi2 大于设定的阈值{认为规定} chi2Mono[it]，则将当前特征点标记为 outlier。
             {                
                 pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1);
+                e->setLevel(1);                                  /// g2o -> setLevel = 0 表示对优化影响的级别降低
                 nBad++;
             }
             else
@@ -443,11 +450,11 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
     // Recover optimized pose and return number of inliers
     g2o::VertexSE3Expmap* vSE3_recov = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
-    g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();
+    g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();                /// 在Tracking 线程 ->Track(）-> TrackWithMotionModel() || RefKey都会更新
     cv::Mat pose = Converter::toCvMat(SE3quat_recov);
-    pFrame->SetPose(pose);
+    pFrame->SetPose(pose);                                        /// optimise 之后，更新了transform
 
-    return nInitialCorrespondences-nBad;
+    return nInitialCorrespondences-nBad;                               /// 匹配命中个数 - 坏点个数
 }
 
 void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap)

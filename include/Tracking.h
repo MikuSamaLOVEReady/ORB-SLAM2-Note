@@ -79,21 +79,21 @@ public:
 
     // Tracking states
     enum eTrackingState{
-        SYSTEM_NOT_READY=-1,
-        NO_IMAGES_YET=0,
-        NOT_INITIALIZED=1,
+        SYSTEM_NOT_READY=-1,        /// 配置 + 词典文件准备
+        NO_IMAGES_YET=0,            /// 没有图像输入
+        NOT_INITIALIZED=1,          /// 至少需要一个图像
         OK=2,
         LOST=3
     };
 
-    eTrackingState mState;   //tracking 线程当前的状态
-    eTrackingState mLastProcessedState; // ？？作啥的？
+    eTrackingState mState;               /// tracking 线程当前Frame的跟踪状态
+    eTrackingState mLastProcessedState;  /// 上一frame的跟踪状态
 
     // Input sensor
     int mSensor;
 
     // Current Frame
-    Frame mCurrentFrame;
+    Frame mCurrentFrame;            /// 通过grabImag【传感器】 产生一个对象赋值给currentFrame
     cv::Mat mImGray;
 
     // Initialization Variables (Monocular)
@@ -148,6 +148,9 @@ protected:
     // points in the map. Still tracking will continue if there are enough matches with temporal points.
     // In that case we are doing visual odometry. The system will try to do relocalization to recover
     // "zero-drift" localization to the map.
+    /// 当没有足够的地图点用于匹配时，系统可能会使用一些临时点（temporal points）进行跟踪，执行一种类似于视觉里程计的操作。这种方式允许系统在没有足够地图信息时仍能保持对相机位置的估计。
+    /// 只在定位状态工作。
+
     bool mbVO;   // 需要与地图中的point对比？ 如果地图中没有，但仍然
 
     //Other Thread Pointers
@@ -166,9 +169,9 @@ protected:
     Initializer* mpInitializer;
 
     //Local Map
-    KeyFrame* mpReferenceKF;
-    std::vector<KeyFrame*> mvpLocalKeyFrames;
-    std::vector<MapPoint*> mvpLocalMapPoints;
+    KeyFrame* mpReferenceKF;                            /// 与Cur_Frame 拥有最多相似部分的Frame
+    std::vector<KeyFrame*> mvpLocalKeyFrames;           /// 但凡能与当前Frame 有相同的Mppoint的KF都会被加入             「用于构成局部地图」
+    std::vector<MapPoint*> mvpLocalMapPoints;           /// 当前local地图的地图点（把所有local_KF能观察到的都加入）       「用于构成局部地图」
     
     // System
     System* mpSystem;
@@ -203,12 +206,12 @@ protected:
 
     //Last Frame, KeyFrame and Relocalisation Info
     KeyFrame* mpLastKeyFrame;
-    Frame mLastFrame;
+    Frame mLastFrame;                        /// 上一个grab出来的关键帧
     unsigned int mnLastKeyFrameId;
-    unsigned int mnLastRelocFrameId;
+    unsigned int mnLastRelocFrameId;        /// 上一次的重定位Frame 记录了上一次执行重定位的帧的ID。当系统尝试执行重定位时，它会记录当前的帧ID到这个变量。
 
     //Motion Model
-    cv::Mat mVelocity;
+    cv::Mat mVelocity;                      /// 仅仅为
 
     //Color order (true RGB, false BGR, ignored if grayscale)
     bool mbRGB;

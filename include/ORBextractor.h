@@ -57,6 +57,7 @@ public:
     // Compute the ORB features and descriptors on an image.
     // ORB are dispersed on the image using an octree.
     // Mask is ignored in the current implementation.
+    /// 做成了一个functor
     void operator()( cv::InputArray image, cv::InputArray mask,
       std::vector<cv::KeyPoint>& keypoints,
       cv::OutputArray descriptors);
@@ -83,7 +84,7 @@ public:
         return mvInvLevelSigma2;
     }
 
-    std::vector<cv::Mat> mvImagePyramid;
+    std::vector<cv::Mat> mvImagePyramid;    /// 存储图像金字塔每层 【处理后1.缩放 2.补边 的图像】
 
 protected:
 
@@ -101,14 +102,14 @@ protected:
     int iniThFAST;
     int minThFAST;
 
-    std::vector<int> mnFeaturesPerLevel;
+    std::vector<int> mnFeaturesPerLevel;    /// [index 从  level ---> 0] 面积从小到大，， 特征点密度从大到小
 
-    std::vector<int> umax;
+    std::vector<int> umax;      ///这个有啥作用？
 
-    std::vector<float> mvScaleFactor;
-    std::vector<float> mvInvScaleFactor;    
-    std::vector<float> mvLevelSigma2;
-    std::vector<float> mvInvLevelSigma2;
+    std::vector<float> mvScaleFactor;       /// 各个层级缩放系数[1 , 1.2 , 1.44 , 1.728 ....
+    std::vector<float> mvInvScaleFactor;    /// 各个层级缩放系数倒数
+    std::vector<float> mvLevelSigma2;       /// 各个层级缩放系数平方[1 , 1.2 , 1.44 , 1.728 ....
+    std::vector<float> mvInvLevelSigma2;    /// 各个层级缩放系数平方倒数
 };
 
 } //namespace ORB_SLAM

@@ -135,6 +135,7 @@ void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
     UpdateBestCovisibles();
 }
 
+/// 通过mConnectedKeyFrameWeights的改变
 void KeyFrame::UpdateBestCovisibles()
 {
     unique_lock<mutex> lock(mMutexConnections);
@@ -292,6 +293,7 @@ void KeyFrame::UpdateConnections()
 
     vector<MapPoint*> vpMP;
 
+    ///1. 获取当前KF所能观察到的 地图点
     {
         unique_lock<mutex> lockMPs(mMutexFeatures);
         vpMP = mvpMapPoints;
@@ -309,13 +311,14 @@ void KeyFrame::UpdateConnections()
         if(pMP->isBad())
             continue;
 
+        /// 取每一个mappint的 所有共视帧
         map<KeyFrame*,size_t> observations = pMP->GetObservations();
 
         for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
-            if(mit->first->mnId==mnId)
+            if(mit->first->mnId==mnId)  /// 能观察到同一个MP的本KF
                 continue;
-            KFcounter[mit->first]++;
+            KFcounter[mit->first]++;    /// key = 除了本keyframe以外、能观察到本MP的KF有哪些？在这计数一下
         }
     }
 
@@ -327,7 +330,7 @@ void KeyFrame::UpdateConnections()
     //In case no keyframe counter is over threshold add the one with maximum counter
     int nmax=0;
     KeyFrame* pKFmax=NULL;
-    int th = 15;
+    int th = 15;                /// 只有KFcounter中，能与本KF看到的相同的MP超过15个，我们采用
 
     vector<pair<int,KeyFrame*> > vPairs;
     vPairs.reserve(KFcounter.size());
@@ -370,7 +373,7 @@ void KeyFrame::UpdateConnections()
 
         if(mbFirstConnection && mnId!=0)
         {
-            mpParent = mvpOrderedConnectedKeyFrames.front();
+            mpParent = mvpOrderedConnectedKeyFrames.front();    /// 选取共视度最高的KF作为 -- 父关键帧
             mpParent->AddChild(this);
             mbFirstConnection = false;
         }
@@ -434,7 +437,7 @@ void KeyFrame::SetNotErase()
     mbNotErase = true;
 }
 
-void KeyFrame::SetErase()
+void KeyFrame::SetErase()       /// 由loop closing调用，设置为可被删除的KF【不会立即被删除】， 如果之前被豁免过一次，则这次直接启动删除
 {
     {
         unique_lock<mutex> lock(mMutexConnections);
@@ -444,28 +447,31 @@ void KeyFrame::SetErase()
         }
     }
 
-    if(mbToBeErased)
+    if(mbToBeErased)    ///如果已经豁免过一次删除（被SetBadFlag操作过） ，则直接删
     {
         SetBadFlag();
     }
 }
 
 void KeyFrame::SetBadFlag()
-{   
+{
+    /// 1. 判断是否能豁免被删
     {
         unique_lock<mutex> lock(mMutexConnections);
         if(mnId==0)
             return;
         else if(mbNotErase)
         {
-            mbToBeErased = true;
+            mbToBeErased = true;    ///豁免设置
             return;
         }
     }
 
+    /// 2. 从共视图中 删除 本KF
     for(map<KeyFrame*,int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend=mConnectedKeyFrameWeights.end(); mit!=mend; mit++)
         mit->first->EraseConnection(this);
 
+    /// 3. 和本KF有关的地图点 ， 找到MP后，从MP中删除与本KF的关联
     for(size_t i=0; i<mvpMapPoints.size(); i++)
         if(mvpMapPoints[i])
             mvpMapPoints[i]->EraseObservation(this);
@@ -477,11 +483,12 @@ void KeyFrame::SetBadFlag()
         mvpOrderedConnectedKeyFrames.clear();
 
         // Update Spanning Tree
-        set<KeyFrame*> sParentCandidates;
+        set<KeyFrame*> sParentCandidates;   /// 父节点候选组
         sParentCandidates.insert(mpParent);
 
         // Assign at each iteration one children with a parent (the pair with highest covisibility weight)
         // Include that children as new parent candidate for the rest
+        /// mspChildrens --> 孤儿组 【这个while处理的是 删除生成树后，如何重新维持】
         while(!mspChildrens.empty())
         {
             bool bContinue = false;
@@ -490,6 +497,7 @@ void KeyFrame::SetBadFlag()
             KeyFrame* pC;
             KeyFrame* pP;
 
+            /// 克鲁斯卡尔加边法
             for(set<KeyFrame*>::iterator sit=mspChildrens.begin(), send=mspChildrens.end(); sit!=send; sit++)
             {
                 KeyFrame* pKF = *sit;
@@ -550,6 +558,7 @@ bool KeyFrame::isBad()
     return mbBad;
 }
 
+///
 void KeyFrame::EraseConnection(KeyFrame* pKF)
 {
     bool bUpdate = false;

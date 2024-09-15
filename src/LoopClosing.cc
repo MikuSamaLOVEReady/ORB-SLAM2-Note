@@ -64,6 +64,7 @@ void LoopClosing::Run()
         if(CheckNewKeyFrames())
         {
             // Detect loop candidates and check covisibility consistency
+            /// 新的KF是否构成闭环。【】
             if(DetectLoop())
             {
                // Compute similarity transformation [sR|t]
@@ -71,12 +72,12 @@ void LoopClosing::Run()
                if(ComputeSim3())
                {
                    // Perform loop fusion and pose graph optimization
-                   CorrectLoop();
+                   CorrectLoop();       ///真正的回环检测发生的位置
                }
             }
         }       
 
-        ResetIfRequested();
+        ResetIfRequested(); /// 查看是否有外部thread请求复位当前thread
 
         if(CheckFinish())
             break;
@@ -102,14 +103,16 @@ bool LoopClosing::CheckNewKeyFrames()
 
 bool LoopClosing::DetectLoop()
 {
+    /// step1. 取出缓冲中的头部KF。作为回环用的闭环KF
     {
         unique_lock<mutex> lock(mMutexLoopQueue);
         mpCurrentKF = mlpLoopKeyFrameQueue.front();
         mlpLoopKeyFrameQueue.pop_front();
         // Avoid that a keyframe can be erased while it is being process by this thread
-        mpCurrentKF->SetNotErase();
+        mpCurrentKF->SetNotErase();     /// 豁免权添加位置
     }
 
+    /// step2. 上次闭环前后太近
     //If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
@@ -121,6 +124,7 @@ bool LoopClosing::DetectLoop()
     // Compute reference BoW similarity score
     // This is the lowest score to a connected keyframe in the covisibility graph
     // We will impose loop candidates to have a higher similarity than this
+    /// 从当前KF的 其他共视F中 找到关联性最低的分数。 /// 【分数越低，表示离当前约远】但目的貌似不是为此
     const vector<KeyFrame*> vpConnectedKeyFrames = mpCurrentKF->GetVectorCovisibleKeyFrames();
     const DBoW2::BowVector &CurrentBowVec = mpCurrentKF->mBowVec;
     float minScore = 1;
@@ -138,6 +142,9 @@ bool LoopClosing::DetectLoop()
     }
 
     // Query the database imposing the minimum score
+    /// 从DB中找到当前Frame的 【闭环候选KF】 这就脱离了本、 。
+    /// 根据BOW词袋模型搜索。 【需要有相同的BOW向量，但不能直接与当前KF相连】
+    /// 这一步相当于是找大的绿点，
     vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);
 
     // If there are no loop candidates, just add new keyframe and return false
@@ -153,27 +160,28 @@ bool LoopClosing::DetectLoop()
     // Each candidate expands a covisibility group (keyframes connected to the loop candidate in the covisibility graph)
     // A group is consistent with a previous group if they share at least a keyframe
     // We must detect a consistent loop in several consecutive keyframes to accept it
-    mvpEnoughConsistentCandidates.clear();
+    mvpEnoughConsistentCandidates.clear();  /// 清空上一次的回环结果
 
     vector<ConsistentGroup> vCurrentConsistentGroups;
     vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);
-    for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)
+    for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)    /// 与本次KF共视的其他KF们。【不直接与当前KF相连，但却有相同BOW】，【回环不一定就完完全全就一定与本次关键帧匹配，与本次共视的其他KF匹配也是很可行的】
     {
         KeyFrame* pCandidateKF = vpCandidateKFs[i];
 
-        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
-        spCandidateGroup.insert(pCandidateKF);
-
-        bool bEnoughConsistent = false;
+        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames(); /// 遍历所有共视度高的点、以及他们周围一圈连接的KF
+        spCandidateGroup.insert(pCandidateKF);  /// 并把自己也加进去，构成candidate group
+        bool bEnoughConsistent = false;             /// 避免重复操作而已
         bool bConsistentForSomeGroup = false;
+        /// 遍历。上一次的所有 候选关键帧组。【上一帧？】
         for(size_t iG=0, iendG=mvConsistentGroups.size(); iG<iendG; iG++)
         {
-            set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first;
+            set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first; /// 获取蓝色点云组
 
             bool bConsistent = false;
+            /// 遍历当前KF以及与他共视的KF，只要在之前的一组KF中匹配到，则为这组KF连续性计数+1
             for(set<KeyFrame*>::iterator sit=spCandidateGroup.begin(), send=spCandidateGroup.end(); sit!=send;sit++)
             {
-                if(sPreviousGroup.count(*sit))
+                if(sPreviousGroup.count(*sit))  /// 如果在上帧，【蓝色云团】中发现了本次的KF【共视frame】，添加标记，准备计数
                 {
                     bConsistent=true;
                     bConsistentForSomeGroup=true;
@@ -181,11 +189,11 @@ bool LoopClosing::DetectLoop()
                 }
             }
 
-            if(bConsistent)
+            if(bConsistent) /// 则对【KF候选组】连续性计数+1
             {
-                int nPreviousConsistency = mvConsistentGroups[iG].second;
+                int nPreviousConsistency = mvConsistentGroups[iG].second;   //获取上一次的【连续性计数】 他是按照云团来总体计数的
                 int nCurrentConsistency = nPreviousConsistency + 1;
-                if(!vbConsistentGroup[iG])
+                if(!vbConsistentGroup[iG])  /// vbConsistentGroup 这是一个临时变量，用于记录本次匹配过程中，当前哪组KF或者KF共视的组被是连续的，需要记录
                 {
                     ConsistentGroup cg = make_pair(spCandidateGroup,nCurrentConsistency);
                     vCurrentConsistentGroups.push_back(cg);
@@ -200,6 +208,7 @@ bool LoopClosing::DetectLoop()
         }
 
         // If the group is not consistent with any previous group insert with consistency counter set to zero
+        /// 如果当前KF的关联KF组【绿团】 无法匹配完成，
         if(!bConsistentForSomeGroup)
         {
             ConsistentGroup cg = make_pair(spCandidateGroup,0);
@@ -208,6 +217,7 @@ bool LoopClosing::DetectLoop()
     }
 
     // Update Covisibility Consistent Groups
+    /// 把本次KF的结果【绿团】更新，为下一次匹配作准备。
     mvConsistentGroups = vCurrentConsistentGroups;
 
 
@@ -232,7 +242,7 @@ bool LoopClosing::ComputeSim3()
 {
     // For each consistent loop candidate we try to compute a Sim3
 
-    const int nInitialCandidates = mvpEnoughConsistentCandidates.size();
+    const int nInitialCandidates = mvpEnoughConsistentCandidates.size();    /// 绿色云团中，中心KF【没有根据共视图 span 过的，最有可能的过去几个点】
 
     // We compute first ORB matches for each candidate
     // If enough matches are found, we setup a Sim3Solver
@@ -241,7 +251,7 @@ bool LoopClosing::ComputeSim3()
     vector<Sim3Solver*> vpSim3Solvers;
     vpSim3Solvers.resize(nInitialCandidates);
 
-    vector<vector<MapPoint*> > vvpMapPointMatches;
+    vector<vector<MapPoint*> > vvpMapPointMatches;      /// 保存当前KF到
     vvpMapPointMatches.resize(nInitialCandidates);
 
     vector<bool> vbDiscarded;
@@ -254,6 +264,7 @@ bool LoopClosing::ComputeSim3()
         KeyFrame* pKF = mvpEnoughConsistentCandidates[i];
 
         // avoid that local mapping erase it while it is being processed in this thread
+        /// 参与回环时，为KF添加豁免权
         pKF->SetNotErase();
 
         if(pKF->isBad())
@@ -262,8 +273,10 @@ bool LoopClosing::ComputeSim3()
             continue;
         }
 
+        /// 重投影匹配、把过去最可能的那个KF与当前帧做关键点【重投影匹配】
         int nmatches = matcher.SearchByBoW(mpCurrentKF,pKF,vvpMapPointMatches[i]);
 
+        /// 如果特征点匹配超过了 不足20个，则代表这个回环的目的地不够好
         if(nmatches<20)
         {
             vbDiscarded[i] = true;
@@ -273,7 +286,7 @@ bool LoopClosing::ComputeSim3()
         {
             Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF,pKF,vvpMapPointMatches[i],mbFixScale);
             pSolver->SetRansacParameters(0.99,20,300);
-            vpSim3Solvers[i] = pSolver;
+            vpSim3Solvers[i] = pSolver; /// 对可能回环的目的地，创建对应的SIM3求解器
         }
 
         nCandidates++;

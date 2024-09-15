@@ -86,7 +86,7 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
             {
                 const cv::KeyPoint &kp = F.mvKeysUn[i];
 
-                mvP2D.push_back(kp.pt);
+                mvP2D.push_back(kp.pt);            /// 通过map_point能拿到 uv 和 world_pos 分别存储在 mvP3Dw 和 mvP2D 中。
                 mvSigma2.push_back(F.mvLevelSigma2[kp.octave]);
 
                 cv::Mat Pos = pMP->GetWorldPos();

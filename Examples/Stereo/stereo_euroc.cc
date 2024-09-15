@@ -45,7 +45,7 @@ int main(int argc, char **argv)
     // Retrieve paths to images
     vector<string> vstrImageLeft;
     vector<string> vstrImageRight;
-    vector<double> vTimeStamp;
+    vector<double> vTimeStamp;      /// 图片时间戳
     LoadImages(string(argv[3]), string(argv[4]), string(argv[5]), vstrImageLeft, vstrImageRight, vTimeStamp);
 
     if(vstrImageLeft.empty() || vstrImageRight.empty())
@@ -133,8 +133,10 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /// 这个函数通常用于立体校正（stereo rectification）过程中，将左右视图校正到同一视平面，以便后续进行立体匹配和深度估算。
         cv::remap(imLeft,imLeftRect,M1l,M2l,cv::INTER_LINEAR);
         cv::remap(imRight,imRightRect,M1r,M2r,cv::INTER_LINEAR);
+
 
         double tframe = vTimeStamp[ni];
 
@@ -156,7 +158,7 @@ int main(int argc, char **argv)
 
         double ttrack= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
 
-        vTimesTrack[ni]=ttrack;
+        vTimesTrack[ni]=ttrack; ///index = ni的图片组
 
         // Wait to load the next frame
         double T=0;
