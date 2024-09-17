@@ -142,8 +142,8 @@ public:
     // Corresponding stereo coordinate and depth for each keypoint.
     // "Monocular" keypoints have a negative value.
     /// 没有 只有u没有v 是因为纵坐标 与mvKeys[i] 的纵坐标相同
-    std::vector<float> mvuRight; /// （左图）关键点的在 右目相机的水平像素坐标// 只用水平距离可以计算深度 ： 只在双目时期有用
-    std::vector<float> mvDepth;  ///  （双目可以估计出、深度）
+    std::vector<float> mvuRight; /// （左图）关键点【i】的在 右目相机的【水平】像素坐标 ， 纵坐标默认一直是对齐的// 只用水平距离可以计算深度 ： 只在双目时期有用、 RGB-D呢？
+    std::vector<float> mvDepth;  ///  （双目可以估计出、深度）特征点对应的深度？我可以理解为相机空间下的z坐标吗？
 
     // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
@@ -167,11 +167,11 @@ public:
     std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
 
     // Camera pose.
-    cv::Mat mTcw;                                   ///最关键的！ World->Camera camera Pos
+    cv::Mat mTcw;                                   ///最关键的矩阵，！ World->Camera camera Pos
 
     // Current and Next Frame id.
     static long unsigned int nNextId;
-    long unsigned int mnId;
+    long unsigned int mnId;                         /// 当前KF的ID
 
     // Reference Keyframe.
     KeyFrame* mpReferenceKF;                         /// 与Cur_Frame 拥有最多相似部分的Frame

@@ -217,7 +217,7 @@ protected:
     // Spanning Tree and Loop Edges
     bool mbFirstConnection;                            /// 最小生成树有关内容
     KeyFrame* mpParent;                                /// 当前这个KeyFrame在生成树中的父节点
-    std::set<KeyFrame*> mspChildrens;                  /// 多叉树
+    std::set<KeyFrame*> mspChildrens;                  /// 多叉树 ，最小生成树本身就只能有1个子节点， 这里存在多个，是由于边权值可以重复？       // 更新连接： 通过函数 UpdateConnections()，关键帧会根据共视地图点的数量与其他关键帧更新连接关系。
     std::set<KeyFrame*> mspLoopEdges;
 
     // Bad flags

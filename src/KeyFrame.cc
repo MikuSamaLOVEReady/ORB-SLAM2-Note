@@ -80,7 +80,7 @@ void KeyFrame::SetPose(const cv::Mat &Tcw_)
     Rwc.copyTo(Twc.rowRange(0,3).colRange(0,3));
     Ow.copyTo(Twc.rowRange(0,3).col(3));
     cv::Mat center = (cv::Mat_<float>(4,1) << mHalfBaseline, 0 , 0, 1);
-    Cw = Twc*center;
+    Cw = Twc*center;        ///  世界空间下的相机Pos ， center * Twc【相机->世界】
 }
 
 cv::Mat KeyFrame::GetPose()
@@ -172,6 +172,7 @@ vector<KeyFrame*> KeyFrame::GetVectorCovisibleKeyFrames()
     return mvpOrderedConnectedKeyFrames;
 }
 
+/// 获取共视权重，最大的10个KF。 最相关的10个KF
 vector<KeyFrame*> KeyFrame::GetBestCovisibilityKeyFrames(const int &N)
 {
     unique_lock<mutex> lock(mMutexConnections);

@@ -196,13 +196,13 @@ protected:
     // Threshold close/far points
     // Points seen as close by the stereo/RGBD sensor are considered reliable
     // and inserted from just one frame. Far points requiere a match in two keyframes.
-    float mThDepth;
+    float mThDepth;      /// 它用于确定在SLAM过程中哪些点被认为是"近点"或"远点"。近点和远点通常有不同的处理方式，因为远点的深度估计不够精确
 
     // For RGB-D inputs only. For some datasets (e.g. TUM) the depthmap values are scaled.
     float mDepthMapFactor;
 
     //Current matches in frame
-    int mnMatchesInliers;
+    int mnMatchesInliers;           ///  是否构造KF的关键 、 如果
 
     //Last Frame, KeyFrame and Relocalisation Info
     KeyFrame* mpLastKeyFrame;

@@ -92,7 +92,7 @@ public:
     float mTrackProjX;                                      /// 这两个变量表示地图点在当前帧中的投影坐标（像素坐标）。
     float mTrackProjY;
     float mTrackProjXR;
-    bool mbTrackInView;                                     ///一个布尔变量，表示地图点是否在当前帧的视野内。
+    bool mbTrackInView;                                     /// 一个布尔变量，表示地图点是否在当前帧的视野内。
     int mnTrackScaleLevel;
     float mTrackViewCos;
     long unsigned int mnTrackReferenceForFrame;             ///

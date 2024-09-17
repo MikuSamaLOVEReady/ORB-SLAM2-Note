@@ -236,6 +236,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 
 }
 
+//// 理论上，投影回来的MP，与CurFrame中的特征点，一定是有误差的。 通过图优化最小化这个误差
+// 参数为CurFrame
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
     ///  优化器初始化
@@ -246,12 +248,13 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
     g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
 
+    ///使用 Levenberg-Marquardt 算法 OptimizationAlgorithmLevenberg 进行优化。
     g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
     optimizer.setAlgorithm(solver);
 
-    int nInitialCorrespondences=0;
+    int nInitialCorrespondences=0;  /// 统计多少特征点参与优化
 
-    /// Set Frame vertex     【图优化 -- 图顶点 = 特征点】
+    /// Set Frame vertex     【图优化 -- 图顶点 = 特征点】 。 顶点表示需要优化的变量，待求解的对象
     g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
     vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
     vSE3->setId(0);
@@ -282,10 +285,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     /// 每个特征点都是一个edge （仅仅是读取这些data 并没有改变mappoint中的data）
     for(int i=0; i<N; i++)
     {
-        MapPoint* pMP = pFrame->mvpMapPoints[i];            /// frame中的特征 需要在地图中有对应的 实际Mappoint才行
+        MapPoint* pMP = pFrame->mvpMapPoints[i];            /// frame中的特征点 需要在地图中有对应的 实际Mappoint才行
         if(pMP)
         {
-            // Monocular observation
+            // Monocular observation 。  /// 单双目可以从
             if(pFrame->mvuRight[i]<0)
             {
                 nInitialCorrespondences++;
@@ -327,13 +330,14 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                 //SET EDGE
                 Eigen::Matrix<double,3,1> obs;
-                const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
+                const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];     /// 获取 左目的特征点
                 const float &kp_ur = pFrame->mvuRight[i];
-                obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
+                obs << kpUn.pt.x, kpUn.pt.y, kp_ur;                 /// 左目特征点 （u，v） + 对应右目的 u'
 
-                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();   ///这个类型g2o自带了
+                ///这个类型g2o自带了
+                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
 
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));         ////将边与顶点链接
                 e->setMeasurement(obs);
                 const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
                 Eigen::Matrix3d Info = Eigen::Matrix3d::Identity()*invSigma2;
@@ -348,7 +352,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->cx = pFrame->cx;
                 e->cy = pFrame->cy;
                 e->bf = pFrame->mbf;
-                cv::Mat Xw = pMP->GetWorldPos();                                            /// 获取Mappoint的3D空间坐标
+                cv::Mat Xw = pMP->GetWorldPos();                                            /// 获取Mappoint的 世界坐标
                 e->Xw[0] = Xw.at<float>(0);
                 e->Xw[1] = Xw.at<float>(1);
                 e->Xw[2] = Xw.at<float>(2);
@@ -378,9 +382,14 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     for(size_t it=0; it<4; it++)
     {
         /// 初始化相机位姿的估计
-        vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
+        vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));  /// pFrame->mTcw当前待优化的变量
         optimizer.initializeOptimization(0);
-        optimizer.optimize(its[it]);    /// 执行优化【其实已经能算 pose】
+        optimizer.optimize(its[it]);    /// 执行优化【其实已经能算 pose】、 its[i] = 10 表示进行10次迭代优化
+
+
+        /*
+         *  在优化器的工作，
+         */
 
 
         /// 对优化后的结果做后处理， 把一些错误匹配的情况所带来的影响降低
@@ -415,23 +424,24 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->setRobustKernel(0);
         }
 
+        /// 重点看双目怎么优化的
         for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
         {
             g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
 
-            const size_t idx = vnIndexEdgeStereo[i];
+            const size_t idx = vnIndexEdgeStereo[i];     /// 获取edge 对应的特征点序列。
 
-            if(pFrame->mvbOutlier[idx])
+            if(pFrame->mvbOutlier[idx])                  /// outlier 是怎么被赋值的？
             {
-                e->computeError();
+                e->computeError();                       /// 如果对应的特征点之前被标记为外点（mvbOutlier[idx] == true），则重新计算误差。
             }
 
-            const float chi2 = e->chi2();
+            const float chi2 = e->chi2();   ///获取新误差的平方和
 
-            if(chi2>chi2Stereo[it])
+            if(chi2>chi2Stereo[it])         ///chi2Stereo【it】 记录了每次优化结束后，误差的上限。如果误差过大，则直接化为外点，下次进来
             {
                 pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1);
+                e->setLevel(1); ///将边的优化级别设置为 1，使其在下一次优化中被忽略。
                 nBad++;
             }
             else
@@ -441,7 +451,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             if(it==2)
-                e->setRobustKernel(0);
+                e->setRobustKernel(0);  /// 鲁棒核函数（如 Huber 核）在优化初期有助于减小外点对优化的影响，但在优化后期，移除鲁棒核可以提高优化的精度。
         }
 
         if(optimizer.edges().size()<10)
@@ -452,7 +462,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     g2o::VertexSE3Expmap* vSE3_recov = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
     g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();                /// 在Tracking 线程 ->Track(）-> TrackWithMotionModel() || RefKey都会更新
     cv::Mat pose = Converter::toCvMat(SE3quat_recov);
-    pFrame->SetPose(pose);                                        /// optimise 之后，更新了transform
+    pFrame->SetPose(pose);                                        /// optimise 之后，更新了【位置姿态】
 
     return nInitialCorrespondences-nBad;                               /// 匹配命中个数 - 坏点个数
 }

@@ -268,10 +268,10 @@ void Frame::SetPose(cv::Mat Tcw)
 void Frame::UpdatePoseMatrices()
 { 
     mRcw = mTcw.rowRange(0,3).colRange(0,3);
-    mRwc = mRcw.t();                                    /// 旋转Matrix的逆 就是转置
+    mRwc = mRcw.t();                                                            /// 旋转Matrix的逆 就是转置
     mtcw = mTcw.rowRange(0,3).col(3);
-    mOw = -mRcw.t()*mtcw;                               /// 存储相机在世界坐标系中的Pos？？？
-                                                        /// 逆向减去之前的平移，并且从Camera旋转回world坐标
+    mOw = -mRcw.t()*mtcw;                                                       /// 相机在世界坐标系中的Pos[推导见Notion]
+                                                                                /// 逆向减去之前的平移，并且从Camera旋转回world坐标
 }
 
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
@@ -279,7 +279,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     pMP->mbTrackInView = false;
 
     // 3D in absolute coordinates
-    cv::Mat P = pMP->GetWorldPos();                     /// Mappoint Pos
+    cv::Mat P = pMP->GetWorldPos();                     /// Mappoint 世界坐标
 
     // 3D in camera coordinates
     const cv::Mat Pc = mRcw*P+mtcw;                     /// 转移到->Camera空间下的Pos
@@ -288,10 +288,12 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     const float &PcZ = Pc.at<float>(2);
 
     // Check positive depth
+    /// 投影到 相机 背后了 ， 那就不在当前观察的范围内
     if(PcZ<0.0f)
         return false;
 
-    // Project in image and check it is not outside         /// Projection Matrix
+    // Project in image and check it is not outside
+    /// Projection Matrix ， 判定是否投影离开了成像平面
     const float invz = 1.0f/PcZ;
     const float u=fx*PcX*invz+cx;
     const float v=fy*PcY*invz+cy;
@@ -301,10 +303,11 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     if(v<mnMinY || v>mnMaxY)
         return false;
 
+    /// 地图点与相机之间的距离，【世界坐标差】
     // Check distance is in the scale invariance region of the MapPoint
     const float maxDistance = pMP->GetMaxDistanceInvariance();
     const float minDistance = pMP->GetMinDistanceInvariance();
-    const cv::Mat PO = P-mOw;                            /// 统一坐标系（世界坐标系） 地图点 - 相机光心点
+    const cv::Mat PO = P-mOw;                            /// 统一坐标系（世界坐标系） 地图点 - 相机光心点【相机在世界坐标系中的Pos】
     const float dist = cv::norm(PO);                /// sqrt( x^2 + y^2 + z^2) 相机到Mappoint的距离
 
     if(dist<minDistance || dist>maxDistance)
@@ -313,7 +316,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
    // Check viewing angle
     cv::Mat Pn = pMP->GetNormal();
 
-    const float viewCos = PO.dot(Pn)/dist;
+    const float viewCos = PO.dot(Pn)/dist; /// 从地图点指向当前相机位置的向量。 Pn【单位向量，指向同一个位置】
 
     if(viewCos<viewingCosLimit)
         return false;
@@ -322,12 +325,12 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     const int nPredictedLevel = pMP->PredictScale(dist,this);
 
     // Data used by the tracking
-    pMP->mbTrackInView = true;
+    pMP->mbTrackInView = true;                  /// 感觉仅仅是给 local mapping 用的变量
     pMP->mTrackProjX = u;
-    pMP->mTrackProjXR = u - mbf*invz;
+    pMP->mTrackProjXR = u - mbf*invz;           /// 地图点在右目中的 u坐标
     pMP->mTrackProjY = v;
     pMP->mnTrackScaleLevel= nPredictedLevel;
-    pMP->mTrackViewCos = viewCos;
+    pMP->mTrackViewCos = viewCos;               // 视角余弦值，用于视角一致性检查
 
     return true;
 }
@@ -699,19 +702,19 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
 
 
 /// 初始化的时候调用，通过把特征点直接投影到世界空间，构造mappoint
-/// TrackWithModel 时候也调用
+/// TrackWithModel 时候也调用。
 cv::Mat Frame::UnprojectStereo(const int &i)
 {
     const float z = mvDepth[i];
 
     if(z>0)
     {
-        const float u = mvKeysUn[i].pt.x;
+        const float u = mvKeysUn[i].pt.x;       /// 特征点矫正后的坐标
         const float v = mvKeysUn[i].pt.y;
-        const float x = (u-cx)*z*invfx;         /// 逆向projection matrix获取 Camera Space下的坐标
+        const float x = (u-cx)*z*invfx;         /// 逆向 使用 projection matrix获取，Camera Space下的坐标。  投影矩阵逆*成像平面
         const float y = (v-cy)*z*invfy;
-        cv::Mat x3Dc = (cv::Mat_<float>(3,1) << x, y, z);
-        return mRwc*x3Dc+mOw;                              ///X3Dc已经是Camera 空间下的点了平移                    /// 返回特征点所在的世界坐标
+        cv::Mat x3Dc = (cv::Mat_<float>(3,1) << x, y, z);       /// 得到相机空间下的Pos
+        return mRwc*x3Dc+mOw;                              ///X3Dc已经是Camera 空间下的点了， mOw表示相机的平移     /// 返回特征点所在的世界坐标
     }
     else
         return cv::Mat();

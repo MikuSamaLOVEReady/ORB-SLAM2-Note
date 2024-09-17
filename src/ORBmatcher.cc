@@ -51,13 +51,13 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
     for(size_t iMP=0; iMP<vpMapPoints.size(); iMP++)
     {
         MapPoint* pMP = vpMapPoints[iMP];
-        if(!pMP->mbTrackInView)                                      /// 地图中不可见 -> 跳过
+        if(!pMP->mbTrackInView)                /// MP不在当前的 视锥中，不进行
             continue;
 
-        if(pMP->isBad())                                            /// 质量过低 -> 跳过
+        if(pMP->isBad())                       /// 质量过低 -> 跳过
             continue;
 
-        const int &nPredictedLevel = pMP->mnTrackScaleLevel;        ///
+        const int &nPredictedLevel = pMP->mnTrackScaleLevel;        /// 根据地图点的深度和相机参数预测的尺度等级。
 
         // The size of the window will depend on the viewing direction
         float r = RadiusByViewingCos(pMP->mTrackViewCos);
@@ -66,15 +66,15 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
             r*=th;
 
         /// 根据投影坐标、尺度因子、以及尺度金字塔层级、来定义一个F当前图像区域
-        /// 并从该区域中获取特征点
+        /// 并从该区域中获取特征点。【一个子图的搜索范围】
         const vector<size_t> vIndices =
-                F.GetFeaturesInArea(pMP->mTrackProjX,pMP->mTrackProjY,
+                F.GetFeaturesInArea(pMP->mTrackProjX,pMP->mTrackProjY,      /// 地图点在当前帧中的投影坐标。 u 、 v 坐标
                                     r*F.mvScaleFactors[nPredictedLevel],nPredictedLevel-1,nPredictedLevel);
 
         if(vIndices.empty())
             continue;
 
-        const cv::Mat MPdescriptor = pMP->GetDescriptor();
+        const cv::Mat MPdescriptor = pMP->GetDescriptor();      /// 获得是最能 表达 MP的 一个特征点的 描述符
 
         int bestDist=256;
         int bestLevel= -1;
@@ -1359,7 +1359,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
 
         if(pMP)
         {
-            if(!LastFrame.mvbOutlier[i])
+            if(!LastFrame.mvbOutlier[i])            ///  查看地图点对应的特征点是否是 坏点。 只有好点才可以进入
             {
                 // Project
                 cv::Mat x3Dw = pMP->GetWorldPos();
@@ -1421,7 +1421,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
 
                     const cv::Mat &d = CurrentFrame.mDescriptors.row(i2);
 
-                    const int dist = DescriptorDistance(dMP,d);               /// 找匹配度最高的
+                    const int dist = DescriptorDistance(dMP,d);               /// 找匹配度最高的，特征点index
 
                     if(dist<bestDist)
                     {
@@ -1430,7 +1430,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
                     }
                 }
 
-                if(bestDist<=TH_HIGH)
+                if(bestDist<=TH_HIGH)                   /// 特征点匹配程度 < 100 才可以作为匹配成功的点
                 {
                     CurrentFrame.mvpMapPoints[bestIdx2]=pMP;                ///提供一部分map point（把上一frame的复制过来而已）下标就是ID！！！
                     nmatches++;

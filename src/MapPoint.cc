@@ -247,12 +247,14 @@ float MapPoint::GetFoundRatio()
     return static_cast<float>(mnFound)/mnVisible;
 }
 
+/// MP最好的描述子  =  特征点描述符两两之间，差值的中位数。 差的最小，描述符太相似【前后帧太相近无法表达】， 差的最大，描述符【差距大】
+/// 选取中位数对应的 特征点 描述子 作为 MP的描述子
 void MapPoint::ComputeDistinctiveDescriptors()
 {
     // Retrieve all observed descriptors
     vector<cv::Mat> vDescriptors;
 
-    map<KeyFrame*,size_t> observations;
+    map<KeyFrame*,size_t> observations;         ///  MP关键帧obj本体，对应index
 
     {
         unique_lock<mutex> lock1(mMutexFeatures);
@@ -271,7 +273,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
         KeyFrame* pKF = mit->first;
 
         if(!pKF->isBad())
-            vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
+            vDescriptors.push_back(pKF->mDescriptors.row(mit->second)); /// 根据index 获取描述子
     }
 
     if(vDescriptors.empty())
@@ -280,13 +282,16 @@ void MapPoint::ComputeDistinctiveDescriptors()
     // Compute distances between them
     const size_t N = vDescriptors.size();
 
+
+    /// O(n^2) TODO: slow
     float Distances[N][N];
     for(size_t i=0;i<N;i++)
     {
         Distances[i][i]=0;
         for(size_t j=i+1;j<N;j++)
         {
-            int distij = ORBmatcher::DescriptorDistance(vDescriptors[i],vDescriptors[j]);
+            /// 函数来计算两个 ORB 描述子之间的汉明距离。
+            int distij = ORBmatcher::DescriptorDistance(vDescriptors[i],vDescriptors[j]);       /// 地图点对应的所有特征点之间，两两计算，效果糟糕
             Distances[i][j]=distij;
             Distances[j][i]=distij;
         }
@@ -297,9 +302,9 @@ void MapPoint::ComputeDistinctiveDescriptors()
     int BestIdx = 0;
     for(size_t i=0;i<N;i++)
     {
-        vector<int> vDists(Distances[i],Distances[i]+N);
+        vector<int> vDists(Distances[i],Distances[i]+N);    /// 遍历每一个特征点 与 其他特征点的 dist
         sort(vDists.begin(),vDists.end());
-        int median = vDists[0.5*(N-1)];
+        int median = vDists[0.5*(N-1)];         /// 找到 中位数
 
         if(median<BestMedian)
         {
