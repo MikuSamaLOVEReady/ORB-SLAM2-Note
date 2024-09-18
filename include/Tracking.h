@@ -37,6 +37,7 @@
 #include "Initializer.h"
 #include "MapDrawer.h"
 #include "System.h"
+#include <spdlog/logger.h>
 
 #include <mutex>
 
@@ -217,6 +218,10 @@ protected:
     bool mbRGB;
 
     list<MapPoint*> mlpTemporalPoints;
+
+    /// LOG 日志系统
+    std::shared_ptr<spdlog::logger> logger;
+
 };
 
 } //namespace ORB_SLAM

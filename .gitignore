@@ -27,3 +27,15 @@ cmake-build-debug-system
 Examples/RGB-D/.DS_Store
 .DS_Store
 cmake-build-debug
+Thirdparty/DBoW2/CMakeFiles
+Thirdparty/g2o/CMakeFiles
+Thirdparty/DBoW2/CMakeCache.txt
+Thirdparty/DBoW2/Makefile
+Thirdparty/DBoW2/cmake_install.cmake
+Thirdparty/g2o/CMakeCache.txt
+Thirdparty/g2o/Makefile
+Thirdparty/g2o/cmake_install.cmake
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+CMakeFiles

@@ -342,6 +342,8 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
 
 
 /// 【地图点本身变化】「物体本身移动」 或 【关键帧对该地图点观测】「相机移动」发生变化
+
+/// 主要目的 更新 Normal（地图点的平均观测方向）
 void MapPoint::UpdateNormalAndDepth()
 {
     /// 读取能观察到本地图点的所有 KeyFrame 信息
@@ -367,7 +369,7 @@ void MapPoint::UpdateNormalAndDepth()
     {
         KeyFrame* pKF = mit->first;
         cv::Mat Owi = pKF->GetCameraCenter();
-        cv::Mat normali = mWorldPos - Owi; /// 从【每一个key帧】指向当前地图点
+        cv::Mat normali = mWorldPos - Owi; /// 从【每一个key帧】指向当前地图点 ---> 每一帧的观测方向
         normal = normal + normali/cv::norm(normali);    /// 该方向的单位向量累加
         n++;
     }

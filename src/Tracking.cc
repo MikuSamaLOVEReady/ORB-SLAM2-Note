@@ -23,6 +23,10 @@
 
 #include<opencv2/core/core.hpp>
 #include<opencv2/features2d/features2d.hpp>
+#include<spdlog/spdlog.h>
+#include<spdlog/sinks/basic_file_sink.h>
+#include <chrono>
+#include <ctime>
 
 #include"ORBmatcher.h"
 #include"FrameDrawer.h"
@@ -147,6 +151,13 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
             mDepthMapFactor = 1.0f/mDepthMapFactor;
     }
 
+    /// 根据运行时间
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&now_time), "%Y-%m-%d_%H-%M-%S");
+    string log_filename = "logs/log_" + ss.str() + ".txt";
+    logger = spdlog::basic_logger_mt("file_logger", log_filename);
 }
 
 void Tracking::SetLocalMapper(LocalMapping *pLocalMapper)
@@ -272,6 +283,8 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
     return mCurrentFrame.mTcw.clone();
 }
 
+/// 对于任何一帧，都记录
+static unsigned int Frame_uid = 0;
 void Tracking::Track()
 {
     if(mState==NO_IMAGES_YET)
@@ -470,13 +483,38 @@ void Tracking::Track()
                     }
             }
 
-            // Delete temporal MapPoints
-            /// 在上半部分调用 TrackWithMotionModel 的时候构造出了一系列 临时用于VO的 地图点
-            for(list<MapPoint*>::iterator lit = mlpTemporalPoints.begin(), lend =  mlpTemporalPoints.end(); lit!=lend; lit++)
+            // Delete temporal MapPoints 、  在上半部分调用 TrackWithMotionModel 的时候构造出了一系列 临时用于VO的 地图点
+            /// 滑动窗口 ， 每次保留中等深度的 临时地图点，而太远或太近的地图点全部清空
+            int max_deletFront_size = mlpTemporalPoints.size() * 0.1;
+            int max_deletEnd_size = mlpTemporalPoints.size() * 0.25;
+            int cur_count_front = 0;
+            int cur_count_end  = 0;
+
+            /// 注意迭代器失效的问题
+            for(auto lit = mlpTemporalPoints.begin(); lit != mlpTemporalPoints.end(); ++lit )
             {
                 MapPoint* pMP = *lit;
-                delete pMP;
+                if(pMP != nullptr){
+                    delete pMP;
+                    //pMP = nullptr;
+                    //lit = mlpTemporalPoints.erase(lit); // 删除后将迭代器移到下一个位置
+                    cur_count_front++;
+                    if( cur_count_front == max_deletFront_size ) break;
+                }
             }
+
+            for(auto lit = mlpTemporalPoints.rbegin(); lit != mlpTemporalPoints.rend(); ++lit )
+            {
+                MapPoint* pMP = *lit;
+                if(pMP != nullptr){
+                    delete pMP;
+                    //pMP = nullptr;
+                    //lit = mlpTemporalPoints.erase(lit);  // 使用 std::next 处理 erase 后的迭代器更新
+                    cur_count_end++;
+                    if( cur_count_end == max_deletEnd_size ) break;
+                }
+            }
+
             mlpTemporalPoints.clear();
 
             // Check if we need to insert a new keyframe
@@ -488,6 +526,7 @@ void Tracking::Track()
             // pass to the new keyframe, so that bundle adjustment will finally decide
             // if they are outliers or not. We don't want next frame to estimate its position
             // with those points so we discard them in the frame.
+            /// 由BA来决定地图点的 outlier 与否
             for(int i=0; i<mCurrentFrame.N;i++)
             {
                 if(mCurrentFrame.mvpMapPoints[i] && mCurrentFrame.mvbOutlier[i])
@@ -851,6 +890,7 @@ bool Tracking::TrackReferenceKeyFrame()
         }
     }
 
+    logger->info("Cur_FrameID:{} || TrackType: TrackReference " , mCurrentFrame.mnId );
     return nmatchesMap>=10;     /// 当地图中 Mappoint 能被10个以上的 Frame观察到时，才算位姿态估计成功
 }
 
@@ -866,8 +906,14 @@ void Tracking::UpdateLastFrame()
 
     ///  如果是 单目相机 + 定位建图状态 + 当前为关键帧
     ///  定位建图到这里就返回了啊！！！
-    if(mnLastKeyFrameId==mLastFrame.mnId || mSensor==System::MONOCULAR || !mbOnlyTracking)
+    if(mnLastKeyFrameId==mLastFrame.mnId || mSensor==System::MONOCULAR || !mbOnlyTracking){
+        if( !mbOnlyTracking )
+            logger->warn("Cur_FrameID:{} || TrackType: MotionMove || not Only Tracking ", mCurrentFrame.mnId);
+        else if( mSensor==System::MONOCULAR ){
+            logger->warn("Cur_FrameID:{} || TrackType: MotionMove || LastKF == LastF", mCurrentFrame.mnId);
+        }
         return;
+    }
 
     // Create "visual odometry" MapPoints
     // We sort points according to their measured depth by the stereo/RGB-D sensor
@@ -880,12 +926,15 @@ void Tracking::UpdateLastFrame()
         float z = mLastFrame.mvDepth[i];
         if(z>0)
         {
-            vDepthIdx.push_back(make_pair(z,i));
+            vDepthIdx.push_back(make_pair(z,i));             ///   这里并没有三角化出真实的点，只是查看当前以相机为坐标的深度 是否>0
         }
     }
 
-    if(vDepthIdx.empty())
+    if(vDepthIdx.empty()){
+        logger->warn("Cur_FrameID:{} || TrackType: MotionMove || vDepthIdx empty", mCurrentFrame.mnId);
         return;
+    }
+
 
     sort(vDepthIdx.begin(),vDepthIdx.end());             //// 到此为止对上一帧中的深度排序，从近(小)到远（大）排序
 
@@ -893,13 +942,17 @@ void Tracking::UpdateLastFrame()
     // If less than 100 close points, we insert the 100 closest ones.
     /// 优先使用近点
     /// 如果真正的地图点不超过100个、则创建一些mlpTemporalPoints ， 将总数量补齐100 【local point + original point 】
+
+    // TODO: 统计运算时间
+    auto start = std::chrono::high_resolution_clock::now();
+
     int nPoints = 0;
     for(size_t j=0; j<vDepthIdx.size();j++)
     {
         int i = vDepthIdx[j].second;    /// 特征点ID
 
         bool bCreateNew = false;
-        /// 当前Frame中、特征点对应的地图点没三角化出来、则需要创建虚拟MP
+        /// 当前Frame中、特征点对应的地图点没三角化出来、则需要创建虚拟MP。
         MapPoint* pMP = mLastFrame.mvpMapPoints[i];                 /// 865-871     只有被观察过少 和 已经被删除的 mappoint 才会被构造成
         if(!pMP)
             bCreateNew = true;                                      /// 这些点被构成临时地图点   用于辅助地图的稳定与准确性
@@ -914,9 +967,9 @@ void Tracking::UpdateLastFrame()
             cv::Mat x3D = mLastFrame.UnprojectStereo(i);
             MapPoint* pNewMP = new MapPoint(x3D,mpMap,&mLastFrame,i);   /// 在createNewFrame之前被删除
 
-            mLastFrame.mvpMapPoints[i]=pNewMP;
+            mLastFrame.mvpMapPoints[i]=pNewMP;          /// 这里面藏了很多临时地图点、往往是被位姿_优化掉了的坏地图点，这里引入只是为了能一定程度帮助追踪
 
-            mlpTemporalPoints.push_back(pNewMP);    /// 存储临时
+            mlpTemporalPoints.push_back(pNewMP);    /// 存储临时地图点
             nPoints++;
         }
         else
@@ -927,10 +980,15 @@ void Tracking::UpdateLastFrame()
         if(vDepthIdx[j].first>mThDepth && nPoints>100)
             break;
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    logger->info("Total_Map_Size {} ,  TempMap_size: {} ， cost_Time:{} ms , TrackType: MotionMove ", mLastFrame.mvpMapPoints.size() , mlpTemporalPoints.size() , duration.count());
 }
 
 bool Tracking::TrackWithMotionModel()
 {
+    logger->info("Cur_FrameID:{} || TrackType: TrackMotion" , mCurrentFrame.mnId );
     ORBmatcher matcher(0.9,true);
 
     // Update last frame pose according to its reference keyframe
@@ -1067,7 +1125,7 @@ bool Tracking::NeedNewKeyFrame()
     int nMinObs = 3;
     if(nKFs<=2)
         nMinObs=2;
-    int nRefMatches = mpReferenceKF->TrackedMapPoints(nMinObs);
+    int nRefMatches = mpReferenceKF->TrackedMapPoints(nMinObs);         /// RFFrame中、特征点是内点的个数
 
     // Local Mapping accept keyframes?
     bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();                  /// 用于查看Local Mapping是否空闲，如果空闲【正在sleep】可以接受新的KF
@@ -1104,11 +1162,12 @@ bool Tracking::NeedNewKeyFrame()
     // Condition 1b: More than "MinFrames" have passed and Local Mapping is idle
     const bool c1b = (mCurrentFrame.mnId>=mnLastKeyFrameId+mMinFrames && bLocalMappingIdle);    /// local mapping闲置， 并且有新的Frame进来，具有继续建图的能力
     //Condition 1c: tracking is weak
-    const bool c1c =  mSensor!=System::MONOCULAR && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ; ///
+    /// 与参考关键帧相比【nRefMatches ：参考帧中的好点 】，localMap跟踪到的点少【mnMatchesInliers：】 小于参考关键点中1/4。视觉里程计匹配多于地图匹配
+    const bool c1c =  mSensor!=System::MONOCULAR && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ; /// mnMatchesInliers 是在local mapping完成后
     // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
-    const bool c2 = ((mnMatchesInliers<nRefMatches*thRefRatio|| bNeedToInsertClose) && mnMatchesInliers>15);
+    const bool c2 = ((mnMatchesInliers<nRefMatches*thRefRatio|| bNeedToInsertClose) && mnMatchesInliers>15);        /// localMap 中能找到许多新点>15 , 但又小于3/4的RefFrame中的特征点个数
 
-    if((c1a||c1b||c1c)&&c2)
+    if((c1a||c1b||c1c)&&c2)         ///  进入这个if 就表示 确实需要新的关键帧来保持追踪 与 建图
     {
         // If the mapping accepts keyframes, insert keyframe.
         // Otherwise send a signal to interrupt BA
@@ -1118,7 +1177,7 @@ bool Tracking::NeedNewKeyFrame()
         }
         else
         {
-            mpLocalMapper->InterruptBA();
+            mpLocalMapper->InterruptBA();                                                               /// 如果 建图线程不空闲，
             if(mSensor!=System::MONOCULAR)
             {
                 if(mpLocalMapper->KeyframesInQueue()<3)
@@ -1135,6 +1194,7 @@ bool Tracking::NeedNewKeyFrame()
 }
 
 /// 创建新的KF
+static int global_trace_id = 0; /// Universal ID 每个KF独立一个
 void Tracking::CreateNewKeyFrame()
 {
     if(!mpLocalMapper->SetNotStop(true))
@@ -1142,12 +1202,16 @@ void Tracking::CreateNewKeyFrame()
 
     KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
+    // 记录ID，
+    int KF_trace_id = ++global_trace_id;
+    logger->info("New_KeyFrame: trace_ID: {}", KF_trace_id);
+
     mpReferenceKF = pKF;                        ///
     mCurrentFrame.mpReferenceKF = pKF;          /// 这时候参考KF就是 当前Frame本身
 
     if(mSensor!=System::MONOCULAR)              /// 双目 ｜ RGBD ---> 生成MP
     {
-        mCurrentFrame.UpdatePoseMatrices();
+        mCurrentFrame.UpdatePoseMatrices();         /// 更新当前帧下的 位姿状态
 
         // We sort points by the measured depth by the stereo/RGBD sensor.
         // We create all those MapPoints whose depth < mThDepth.
@@ -1166,7 +1230,7 @@ void Tracking::CreateNewKeyFrame()
 
         if(!vDepthIdx.empty())
         {
-            sort(vDepthIdx.begin(),vDepthIdx.end());
+            sort(vDepthIdx.begin(),vDepthIdx.end());        /// 由近及远 创建
 
             int nPoints = 0;
             for(size_t j=0; j<vDepthIdx.size();j++)
@@ -1175,10 +1239,10 @@ void Tracking::CreateNewKeyFrame()
 
                 bool bCreateNew = false;
 
-                MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+                MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];       /// TODO： 什么时候这里的MP会是null ？ 是在三角化失败的？
                 if(!pMP)
                     bCreateNew = true;
-                else if(pMP->Observations()<1)
+                else if(pMP->Observations()<1)      /// 如果这个MP 没有任何一个观测点能看到它，那本质上他也不是个好东西了。
                 {
                     bCreateNew = true;
                     mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
@@ -1186,16 +1250,19 @@ void Tracking::CreateNewKeyFrame()
 
                 if(bCreateNew)
                 {
-                    cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
+                    cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);                         ///     有深度信息就可以不用 三角化来创建地图点
                     MapPoint* pNewMP = new MapPoint(x3D,pKF,mpMap);
                     pNewMP->AddObservation(pKF,i);
                     pKF->AddMapPoint(pNewMP,i);
                     pNewMP->ComputeDistinctiveDescriptors();
                     pNewMP->UpdateNormalAndDepth();
-                    mpMap->AddMapPoint(pNewMP);
-
+                    mpMap->AddMapPoint(pNewMP);                                  ///
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;
                     nPoints++;
+
+                    /// 记录当前KF中特征点 还没有创建没有对应MP时， 新构建的MP
+                    pNewMP->GetWorldPos();
+                    logger->info("New_MapPoint_Pos [{}, {}, {}] , KeyFrame_TraceID: {}", x3D.at<float>(0) , x3D.at<float>(1) , x3D.at<float>(2), KF_trace_id);
                 }
                 else
                 {
@@ -1205,8 +1272,12 @@ void Tracking::CreateNewKeyFrame()
                 if(vDepthIdx[j].first>mThDepth && nPoints>100)
                     break;
             }
+            logger->info("Total Mappoints: {} ， Create_END", nPoints);
         }
+
     }
+
+
 
     /// 对localmapping 也做了一个小更新
     mpLocalMapper->InsertKeyFrame(pKF);

@@ -705,7 +705,7 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
 /// TrackWithModel 时候也调用。
 cv::Mat Frame::UnprojectStereo(const int &i)
 {
-    const float z = mvDepth[i];
+    const float z = mvDepth[i];                 /// attention： 只有能提供深度的才可以直接反向投影
 
     if(z>0)
     {

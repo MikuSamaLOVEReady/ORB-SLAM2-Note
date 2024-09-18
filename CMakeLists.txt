@@ -41,6 +41,8 @@ endif()
 find_package(Eigen3 REQUIRED NO_MODULE) #NoMode
 #set(CMAKE_PREFIX_PATH "/Users/luoruidi/Desktop/Robot/Panglin_Pkg/Pangolin")
 find_package(Pangolin CONFIG REQUIRED PATHS "/Users/luoruidi/Desktop/Robot/Panglin_Pkg/Pangolin")
+find_package(Eigen3 REQUIRED NO_MODULE)
+find_package(spdlog REQUIRED)
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
@@ -88,6 +90,7 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
            ${Pangolin_LIBRARIES}
            ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
            ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+           spdlog::spdlog
            )
 endif()
 

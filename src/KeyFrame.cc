@@ -74,13 +74,16 @@ void KeyFrame::SetPose(const cv::Mat &Tcw_)
     cv::Mat Rcw = Tcw.rowRange(0,3).colRange(0,3);
     cv::Mat tcw = Tcw.rowRange(0,3).col(3);
     cv::Mat Rwc = Rcw.t();
-    Ow = -Rwc*tcw;
+    Ow = -Rwc*tcw;          /// 相机在世界坐标系中的位置 Ow：
 
     Twc = cv::Mat::eye(4,4,Tcw.type());
     Rwc.copyTo(Twc.rowRange(0,3).colRange(0,3));
     Ow.copyTo(Twc.rowRange(0,3).col(3));
     cv::Mat center = (cv::Mat_<float>(4,1) << mHalfBaseline, 0 , 0, 1);
-    Cw = Twc*center;        ///  世界空间下的相机Pos ， center * Twc【相机->世界】
+    /// center：表示双目相机系统中的右目相机相对于左目相机（主相机）的坐标。具体来说，center 是 (mHalfBaseline, 0, 0, 1)，
+    /// 其中 mHalfBaseline 是双目相机的基线长度的一半。由于双目相机的两个相机平行且在
+    /// X 轴上有一定距离，因此右目相机的坐标相对于左目相机平移了 mHalfBaseline
+    Cw = Twc*center;        ///  世界空间下的 右目相机Pos ， center * Twc【相机->世界】
 }
 
 cv::Mat KeyFrame::GetPose()

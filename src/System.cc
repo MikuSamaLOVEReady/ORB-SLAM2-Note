@@ -134,12 +134,12 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
                 usleep(1000);
             }
 
-            mpTracker->InformOnlyTracking(true);
+            mpTracker->InformOnlyTracking(true);        ///
             mbActivateLocalizationMode = false;
         }
         if(mbDeactivateLocalizationMode)
         {
-            mpTracker->InformOnlyTracking(false);
+            mpTracker->InformOnlyTracking(false);       /// 同时定位 + 建图
             mpLocalMapper->Release();
             mbDeactivateLocalizationMode = false;
         }
