@@ -27,6 +27,8 @@
 #include "LoopClosing.h"
 #include "Tracking.h"
 #include "KeyFrameDatabase.h"
+#include "spdlog/spdlog.h"
+#include <spdlog/sinks/basic_file_sink.h>
 
 #include <mutex>
 
@@ -122,6 +124,9 @@ protected:
 
     bool mbAcceptKeyFrames;
     std::mutex mMutexAccept;
+
+    std::shared_ptr<spdlog::logger> logger_Mapping;
+
 };
 
 } //namespace ORB_SLAM

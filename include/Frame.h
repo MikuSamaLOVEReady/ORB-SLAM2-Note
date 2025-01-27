@@ -99,6 +99,8 @@ public:
     // Backprojects a keypoint (if stereo/depth info available) into 3D world coordinates.
     cv::Mat UnprojectStereo(const int &i);
 
+    int GetFrameMaxVisibility();
+
 public:
     // Vocabulary used for relocalization.
     ORBVocabulary* mpORBvocabulary;
@@ -212,6 +214,8 @@ private:
     cv::Mat mtcw;
     cv::Mat mRwc;           /// 什么时候被确定的？ 是在解出 Tcw的时候吗？
     cv::Mat mOw; //==mtwc
+
+    int maxVisibility = 0;
 };
 
 }// namespace ORB_SLAM

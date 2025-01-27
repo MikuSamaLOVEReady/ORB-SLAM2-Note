@@ -720,4 +720,19 @@ cv::Mat Frame::UnprojectStereo(const int &i)
         return cv::Mat();
 }
 
+/// 需不需要 mutex？
+int Frame::GetFrameMaxVisibility() {
+    /// init 当前最大可见值
+    maxVisibility = 0;
+    for( auto it = mvpMapPoints.begin() ; it!=mvpMapPoints.end() ; ++it ){
+        MapPoint* pMP = *it;
+        if( pMP ){
+            maxVisibility =  maxVisibility > pMP->Observations() ? maxVisibility : pMP->Observations();
+        }
+    }
+    return maxVisibility;
+}
+
+
+
 } //namespace ORB_SLAM

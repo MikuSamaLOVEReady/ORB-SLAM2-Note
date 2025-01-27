@@ -70,7 +70,7 @@ protected:
     std::set<MapPoint*> mspMapPoints;
     std::set<KeyFrame*> mspKeyFrames;
 
-    std::vector<MapPoint*> mvpReferenceMapPoints;
+    std::vector<MapPoint*> mvpReferenceMapPoints;       /// trakcing 每一帧状态下，
 
     long unsigned int mnMaxKFid;
 

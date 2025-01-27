@@ -345,7 +345,7 @@ void Tracking::Track()
                 bOK = Relocalization();                                              /// 如果追踪丢失 ｜｜ 则进入重定位操作
             }
         }
-        else  /// 没有建图的时候 ，只做定位【需要点击 toogle】
+        else  /// 【需要点击最后一个 toogle】
         {
             // Localization Mode: Local Mapping is deactivated
 
@@ -518,7 +518,7 @@ void Tracking::Track()
             mlpTemporalPoints.clear();
 
             // Check if we need to insert a new keyframe
-            /// 5。 构造新KF
+            /// 5。 构造新KF ， 同时更新全局大地图
             if(NeedNewKeyFrame())
                 CreateNewKeyFrame();
 
@@ -558,7 +558,7 @@ void Tracking::Track()
         mlRelativeFramePoses.push_back(Tcr);
         mlpReferences.push_back(mpReferenceKF);
         mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
-        mlbLost.push_back(mState==LOST);
+        mlbLost.push_back(mState==LOST);    /// 结束时可以统计 追踪状态。TODO： 可以写日志里
     }
     else
     {
@@ -599,7 +599,7 @@ void Tracking::StereoInitialization()
                 pKFini->AddMapPoint(pNewMP,i);
                 pNewMP->ComputeDistinctiveDescriptors();
                 pNewMP->UpdateNormalAndDepth();                     ///
-                mpMap->AddMapPoint(pNewMP);                    ///初始化阶段就有addMappoint
+                mpMap->AddMapPoint(pNewMP);                    ///初始化阶段就有addMappoint ，更新MP成员变量 mspMapPoints
 
                 mCurrentFrame.mvpMapPoints[i]=pNewMP;
             }
@@ -614,7 +614,7 @@ void Tracking::StereoInitialization()
         mpLastKeyFrame = pKFini;
 
         mvpLocalKeyFrames.push_back(pKFini);            /// 局部关键帧列表
-        mvpLocalMapPoints=mpMap->GetAllMapPoints();     /// 局部地图点列表
+        mvpLocalMapPoints=mpMap->GetAllMapPoints();     /// 初始状态下，会将所有地图点全部纳入
         mpReferenceKF = pKFini;                         ///
         mCurrentFrame.mpReferenceKF = pKFini;
 
@@ -803,7 +803,7 @@ void Tracking::CreateInitialMapMonocular()
     /// tracking 保存了 lcoalKF 与  localMapPoints
     mvpLocalKeyFrames.push_back(pKFcur);
     mvpLocalKeyFrames.push_back(pKFini);
-    mvpLocalMapPoints=mpMap->GetAllMapPoints();
+    mvpLocalMapPoints=mpMap->GetAllMapPoints();     ///本质上也是从全局Map中采集数据
     mpReferenceKF = pKFcur;
     mCurrentFrame.mpReferenceKF = pKFcur;
 
@@ -969,7 +969,7 @@ void Tracking::UpdateLastFrame()
 
             mLastFrame.mvpMapPoints[i]=pNewMP;          /// 这里面藏了很多临时地图点、往往是被位姿_优化掉了的坏地图点，这里引入只是为了能一定程度帮助追踪
 
-            mlpTemporalPoints.push_back(pNewMP);    /// 存储临时地图点
+            mlpTemporalPoints.push_back(pNewMP);    /// 存储临时地图点 ， 类似一个hook ，本质上为了便于剔除
             nPoints++;
         }
         else
@@ -1256,7 +1256,7 @@ void Tracking::CreateNewKeyFrame()
                     pKF->AddMapPoint(pNewMP,i);
                     pNewMP->ComputeDistinctiveDescriptors();
                     pNewMP->UpdateNormalAndDepth();
-                    mpMap->AddMapPoint(pNewMP);                                  ///
+                    mpMap->AddMapPoint(pNewMP);                                  ///     更新总地图点
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;
                     nPoints++;
 
@@ -1347,7 +1347,7 @@ void Tracking::SearchLocalPoints()
 void Tracking::UpdateLocalMap()
 {
     // This is for visualization
-    mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
+    mpMap->SetReferenceMapPoints(mvpLocalMapPoints);        ///
 
     // Update
     UpdateLocalKeyFrames();     /// 确定与Cur_Frame 最相似的 一个KF（记做 ReferenceKF），于此同时把存在与当前KF相同 mappoint 其他Frame也纳入 mvpLocalKeyFrames
@@ -1373,7 +1373,7 @@ void Tracking::UpdateLocalPoints()
                 continue;
             if(!pMP->isBad())
             {
-                mvpLocalMapPoints.push_back(pMP);                           ///
+                mvpLocalMapPoints.push_back(pMP);                           ///  新中产生的 MP 插入处理
                 pMP->mnTrackReferenceForFrame=mCurrentFrame.mnId;           /// mnTrackReferenceForFrame 表明当前地图点正在追踪那个
             }
         }

@@ -38,6 +38,7 @@
 #include "MapDrawer.h"
 #include "System.h"
 #include <spdlog/logger.h>
+#include <cmath>
 
 #include <mutex>
 
@@ -144,6 +145,86 @@ protected:
 
     bool NeedNewKeyFrame();
     void CreateNewKeyFrame();
+
+    /// min_cost_max_flow 算法组成
+
+    /// 1. Maximum point visibility:
+    int func_point( int n  , int m ){
+        if( m == n) return 1;
+        return (n+1)/(n-1) * func_point(n+1 , m);
+    }
+
+    int cal_Point_visibility( MapPoint* mp  , Frame* current_frame ){
+        int m  = mp->Observations();
+        int n = current_frame->GetFrameMaxVisibility();
+        return func_point(m , n);
+    }
+
+    /// 2. Maximum spatial diversity:
+    float calculateMinCircleRadius( const int width , const int height ){
+        double diagonal = sqrt(height * height + width * width);
+        // 最小圆的半径是对角线长度的一半
+        return diagonal / 2;
+    }
+
+    int cal_pointNeibor( MapPoint* mp , KeyFrame* current_frame ) {
+        vector<size_t> indices(0);
+        if( mp->mbTrackInView){
+            const int windowSizeX = 64 / 2; // 半宽度
+            const int windowSizeY = 48 / 2;
+            float u =  mp->mTrackProjX;
+            float v =  mp->mTrackProjX;
+            //int nLastOctave = current_frame.mvKeys[i].octave;
+            /// 获取当前 金字塔层级
+            int index = mp->GetIndexInKeyFrame(current_frame);
+            if( index == -1 ) return -1;    ///  无法计算
+            int cur_level =  current_frame->mvKeysUn[index].octave;
+            /// TOOD: 这里参考ORBmatcher.cc 1479行， 基础阈值可微调
+            /// 将阈值设置为 覆盖矩形的最小圆的半径
+            float th = calculateMinCircleRadius(windowSizeX , windowSizeY);
+            float radius = th*current_frame->mvScaleFactors[cur_level];
+            indices = current_frame->GetFeaturesInArea(u, v, radius);
+        }
+        return indices.size();
+    }
+
+    int calculate_Point_diversity( MapPoint* mp , KeyFrame* frame_i , KeyFrame* frame_j ){
+            int N1 = cal_pointNeibor(mp , frame_i);
+            int N2 = cal_pointNeibor(mp , frame_j);
+            // 计算 并向上取整
+            double result = log( N1 * N2 + 1);
+            int ceilResult = static_cast<int>(ceil(result));
+            return ceilResult;
+    }
+
+    /// 3. Maximum frame baseline length: 最大基线计算
+    double calculate_baseLineDis( KeyFrame* frame_i  , KeyFrame* frame_k  ) {
+            auto m1 = frame_i->GetCameraCenter();
+            auto m2 = frame_k->GetCameraCenter();
+            cv::Mat diff = m1 - m2;
+            double distance = cv::norm(diff);
+            double result = 10 / (0.1 * distance + 1);
+            return result;
+    }
+
+
+    /// 4. 深度补偿/惩罚函数
+    double cal_penalty ( MapPoint* mp , KeyFrame* current_frame ) {
+
+        ///获取当前地图点深度
+            cv::Mat world_pos = mp->GetWorldPos();
+            cv::Mat Tcw = current_frame->GetPose();
+            cv::Mat MP_Camera_pos = Tcw.rowRange(0,3).colRange(0,3) * world_pos + Tcw.rowRange(0,3).col(3);     ///
+            ///  MP_Camera_pos 获取Z坐标
+            float depth = MP_Camera_pos.at<float>(2);
+            /// TODO：惩罚值计算，需要实验验证
+            double avg_depth = current_frame->GetDepthAVG();
+            double delta_depth = depth - avg_depth;
+            double k = 1.0f;
+            double penalty_value = k * delta_depth * delta_depth * (delta_depth >= 0 ? 1 : -1);
+            return penalty_value;
+    }
+
 
     // In case of performing only localization, this flag is true when there are no matches to
     // points in the map. Still tracking will continue if there are enough matches with temporal points.

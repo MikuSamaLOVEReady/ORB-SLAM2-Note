@@ -32,6 +32,12 @@ LocalMapping::LocalMapping(Map *pMap, const float bMonocular):
     mbMonocular(bMonocular), mbResetRequested(false), mbFinishRequested(false), mbFinished(true), mpMap(pMap),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true)
 {
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&now_time), "%Y-%m-%d_%H-%M-%S");
+    string log_filename = "logs/log_" + ss.str() + ".txt";
+    logger_Mapping = spdlog::basic_logger_mt("mapping_thread", log_filename);
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -67,7 +73,7 @@ void LocalMapping::Run()
 
             // Triangulate new MapPoints
             /// 4。创建地图点
-            CreateNewMapPoints();
+            CreateNewMapPoints();       /// 对Map对象 Add
 
             /// 5。 为什么队列有可能变成空的呢？ A：应该是2。步骤中消费了之后，当最后一个KF被消费掉后
             if(!CheckNewKeyFrames())
@@ -292,7 +298,8 @@ void LocalMapping::CreateNewMapPoints()
         const float &invfx2 = pKF2->invfx;
         const float &invfy2 = pKF2->invfy;
 
-        // Triangulate each match
+        // Triangulate each match 。。。
+        /// TODO： 三角化部分 该怎么提速？
         const int nmatches = vMatchedIndices.size();
         for(int ikp=0; ikp<nmatches; ikp++)
         {
@@ -454,7 +461,7 @@ void LocalMapping::CreateNewMapPoints()
 
             pMP->UpdateNormalAndDepth();
 
-            mpMap->AddMapPoint(pMP);
+            mpMap->AddMapPoint(pMP);                        /// 大部分在local_Map创建
             mlpRecentAddedMapPoints.push_back(pMP);
 
             nnew++;

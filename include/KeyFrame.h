@@ -117,6 +117,22 @@ public:
     }
 
 
+    void UpdateDepthAVG(){
+        if (mvDepth.empty())
+            return ; //
+
+        double sum = 0.0f;
+        for (size_t i = 0; i < mvDepth.size(); ++i)
+        {
+            sum += mvDepth[i];
+        }
+        cur_depthAVG = sum / static_cast<double>(mvDepth.size());
+    }
+
+    double GetDepthAVG(){
+        return cur_depthAVG;
+    }
+
     // The following variables are accesed from only 1 thread or never change (no mutex needed).
 public:
 
@@ -163,7 +179,7 @@ public:
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
     const std::vector<float> mvuRight; // negative value for monocular points
-    const std::vector<float> mvDepth; // negative value for monocular points
+    const std::vector<float> mvDepth; // negative value for monocular points    [需要提供index]
     const cv::Mat mDescriptors;
 
     //BoW
@@ -232,6 +248,8 @@ protected:
     std::mutex mMutexPose;
     std::mutex mMutexConnections;
     std::mutex mMutexFeatures;
+
+    double cur_depthAVG = 0;            /// 统计当前帧的平均深度 TODO： 每次update的位置需要注意
 };
 
 } //namespace ORB_SLAM
