@@ -75,11 +75,17 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
+    ///TODO: 线程池优化
+    auto start = std::chrono::high_resolution_clock::now();
+
     thread threadLeft(&Frame::ExtractORB,this,0,imLeft);
     thread threadRight(&Frame::ExtractORB,this,1,imRight);
     threadLeft.join();
     threadRight.join();
 
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    spdlog::info("stereo_ORB_EXTRACT {} us,  " , duration.count());
     N = mvKeys.size(); //提取出了多少个特征点
 
     if(mvKeys.empty())
@@ -90,7 +96,11 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     ComputeStereoMatches(); // 双目左右特征点匹配->
 
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));       /// 一个特征
-    mvbOutlier = vector<bool>(N,false);
+    mvbOutlier = vector<bool>(N ,false);
+    mvbSparsed = vector<bool>(N , false);
+    mvPointVisSource = vector<float>(N , INFINITY);                         /// 初始化为均不可选
+    mvPointSparseSource = vector<pair<int , int>>(N);                             ///
+    mvPointDepthSource = vector<float>(N , INFINITY);
 
 
     // This is done only for the first Frame (or after a change in the calibration)
@@ -651,7 +661,7 @@ void Frame::ComputeStereoMatches()
                     bestuR = uL-0.01;
                 }
                 mvDepth[iL]= mbf/disparity;                                 ///  为左特征点  u坐标和 depth赋值
-                mvuRight[iL] = bestuR;                                      ///  右图对应点特征u坐标（x坐标   SLAM14讲 P104
+                mvuRight[iL] = bestuR;                                      ///  右图对应点特征u坐标（x坐标）、如果没有值则为-1  SLAM14讲 P104
                 vDistIdx.push_back(pair<int,int>(bestDist,iL));      ///  < 最好匹配的得分（小） ， 左图特征点ID >
             }
         }
@@ -721,8 +731,8 @@ cv::Mat Frame::UnprojectStereo(const int &i)
 }
 
 /// 需不需要 mutex？
+/// 当前KeyFrame中地图点中 被KF看到的次数最多是哪个KF
 int Frame::GetFrameMaxVisibility() {
-    /// init 当前最大可见值
     maxVisibility = 0;
     for( auto it = mvpMapPoints.begin() ; it!=mvpMapPoints.end() ; ++it ){
         MapPoint* pMP = *it;

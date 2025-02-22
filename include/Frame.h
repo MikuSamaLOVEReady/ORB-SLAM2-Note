@@ -29,8 +29,9 @@
 #include "ORBVocabulary.h"
 #include "KeyFrame.h"
 #include "ORBextractor.h"
-
+#include <spdlog/logger.h>
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 namespace ORB_SLAM2
 {
@@ -161,6 +162,14 @@ public:
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;       /// 是否是外点
 
+    // 用于表示是否可被稀疏化剔除的点
+    std::vector<bool> mvbSparsed;      /// 是否可稀疏化
+    std::vector<float> mvPointVisSource;                  /// 记录可见性，值越大越不选，因为被看见的少
+    std::vector<pair< int , int>> mvPointSparseSource;    /// index = 地图点序号 ， <其他共视地图点[i]的帧ID，得分>。 根据这个能干什么？
+    std::unordered_map< KeyFrame* , double> mvPointBaseLineSource;             /// 与本Frame相关的KF，他们之间的距离值
+    std::vector<float> mvPointDepthSource;             /// 每个特征点在最近KF
+
+
     // Keypoints are assigned to cells in a grid to reduce matching
     // complexity when projecting MapPoints.
     // 特征点ID 被放在一个grand中 64 x 48
@@ -194,6 +203,8 @@ public:
     static float mnMaxY;    // 去畸变后图像中特征点的最大 y 坐标。
 
     static bool mbInitialComputations; //只为第一个出现的frame 做操作？
+
+    //std::shared_ptr<spdlog::logger> Frame_logger;
 
 
 private:

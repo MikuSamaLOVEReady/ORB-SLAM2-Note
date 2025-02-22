@@ -158,6 +158,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     ss << std::put_time(std::localtime(&now_time), "%Y-%m-%d_%H-%M-%S");
     string log_filename = "logs/log_" + ss.str() + ".txt";
     logger = spdlog::basic_logger_mt("file_logger", log_filename);
+
 }
 
 void Tracking::SetLocalMapper(LocalMapping *pLocalMapper)
@@ -424,8 +425,8 @@ void Tracking::Track()
         /// 3。 对local map追踪  本质上就是对位姿的再优化（同时定位建图，是对local map做操作）
         if(!mbOnlyTracking)
         {
-            if(bOK)             ///    追踪成功
-                bOK = TrackLocalMap();          ///更新Cur_Frame ， local_points , 已经可以画新图了
+            if(bOK)                             ///    追踪成功
+                bOK = TrackLocalMap();          ///    更新Cur_Frame ， local_points , 已经可以画新图了
         }
         else        /// 只做tracking操作
         {
@@ -444,7 +445,7 @@ void Tracking::Track()
         else
             mState=LOST;
 
-        // Update drawer
+        /// Update drawer [ 这里操作已完成， 优化也已经做完，才开始绘制]
         mpFrameDrawer->Update(this);            ///TrackLocalMap
 
         // If tracking were good, check if we insert a keyframe
@@ -1068,11 +1069,14 @@ bool Tracking::TrackLocalMap()
     SearchLocalPoints();                /// 更新当前帧的 Mappoint 匹配情况，当一个帧中的 MapPoint 与 特征点有了大致的对应关系后，就可以启动位姿优化，获得位姿信息
 
     // Optimize Pose
-    Optimizer::PoseOptimization(&mCurrentFrame);                    ///
+    Optimizer::PoseOptimization(&mCurrentFrame);                    /// TODO: 位姿优化结束后，可将KF再次丢入优化
+    /// TODO:特征点稀疏化算法
+    Optimizer::SparseOptimization(&mCurrentFrame , mpMap ,mpKeyFrameDB);
     mnMatchesInliers = 0;
 
     // Update MapPoints Statistics
     /// 本质上就是把好点的  mCurrentFrame.mvpMapPoints[i]->IncreaseFound(); 搜索到的个数++
+    /// 增加地图点可被几个帧观测到
     for(int i=0; i<mCurrentFrame.N; i++)
     {
         if(mCurrentFrame.mvpMapPoints[i])
@@ -1306,7 +1310,7 @@ void Tracking::SearchLocalPoints()
             {
                 pMP->IncreaseVisible();     /// 为全局地图中的 MP增加被观测计数。
                 pMP->mnLastFrameSeen = mCurrentFrame.mnId;
-                pMP->mbTrackInView = false;
+                pMP->mbTrackInView = false; /// 这里就是为啥 我在计算 neibor的时候， 无法进入循环的问题
             }
         }
     }
@@ -1333,7 +1337,7 @@ void Tracking::SearchLocalPoints()
     /// 如果 CurFrame 在 local_map 能找到足够的MP。 【钱main】
     if(nToMatch>0)
     {
-        ORBmatcher matcher(0.8);
+        ORBmatcher matcher(0.8);                    /// matcher越小、越严格。
         int th = 1;
         if(mSensor==System::RGBD)
             th=3;
@@ -1752,6 +1756,26 @@ void Tracking::InformOnlyTracking(const bool &flag)
 {
     mbOnlyTracking = flag;
 }
+
+
+    //    int Tracking::func_point(int n, int m) {
+    //       if( m == n) return 1;
+    //       return (n+1)/(n-1) * func_point(n+1 , m);
+    //    }
+
+
+    //    int Tracking::cal_Point_visibility(MapPoint *mp, Frame *current_frame) {
+    //        int m  = mp->Observations();
+    //        int n = current_frame->GetFrameMaxVisibility();
+    //        return func_point(m , n);
+    //    }
+
+    //    float Tracking::calculateMinCircleRadius(const int width, const int height) {
+    //        double diagonal = sqrt(height * height + width * width);
+    //        // 最小圆的半径是对角线长度的一半
+    //        return diagonal / 2;
+    //    }
+
 
 
 

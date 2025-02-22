@@ -86,7 +86,7 @@ cv::Mat FrameDrawer::DrawFrame()
             }
         }        
     }
-    else if(state==Tracking::OK) //TRACKING
+    else if(state==Tracking::OK) //TRACKING 绘制图框的位置
     {
         mnTracked=0;
         mnTrackedVO=0;
@@ -168,7 +168,8 @@ void FrameDrawer::Update(Tracking *pTracker)
 {
     unique_lock<mutex> lock(mMutex);                // 这里是为了对Tracking线程做保护
     pTracker->mImGray.copyTo(mIm);                  // tacking中有一个灰度图？ 传递给FD 的mim中？
-    mvCurrentKeys=pTracker->mCurrentFrame.mvKeys;   // 复制当前帧 tacker中的 特征点  std::vector<cv::KeyPoint>
+    mvCurrentKeys=pTracker->mCurrentFrame.mvKeys;   // 复制当前帧 tacker中的 特征点  std::vector<cv::KeyPoint> || 大量copy
+                                ///  [KeyPoint]： 画框所需位置
     N = mvCurrentKeys.size();                       // N = 统计特征点个数
     mvbVO = vector<bool>(N,false);
     mvbMap = vector<bool>(N,false);
@@ -194,6 +195,10 @@ void FrameDrawer::Update(Tracking *pTracker)
                     else
                         mvbVO[i]=true;  // 被VO所观察到
                 }
+
+                /// TODO ：  在Optimizer中已经
+                /// if( !pTracker->mCurrentFrame.)
+
             }
         }
     }

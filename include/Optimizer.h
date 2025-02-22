@@ -55,6 +55,31 @@ public:
     // if bFixScale is true, optimize SE3 (stereo,rgbd), Sim3 otherwise (mono)
     static int OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, std::vector<MapPoint *> &vpMatches1,
                             g2o::Sim3 &g2oS12, const float th2, const bool bFixScale);
+
+    void static SparseOptimization(Frame* pFrame , Map* pMap , KeyFrameDatabase *pKFDB );
+
+
+    /// 稀疏化优化器
+    static float cal_Point_visibility( MapPoint* mp  , Frame* current_frame );
+    static float func_point( int n  , int m );
+
+    /// 2.1 Maximum spatial diversity:
+    static float calculateMinCircleRadius( const int width , const int height );
+
+    /// 2.2 运行时： 地图点映射回Frame中，查看该地图点对应特征点，周围有哪些特征点
+    static int cal_pointNeibor( MapPoint* mp , KeyFrame* current_frame );
+
+    /// 2.3 任意两帧之间, 同一个特征点在 [i] 、 [j] 两帧中一个Circle中特征点个数
+    static int calculate_Point_diversity( MapPoint* mp , KeyFrame* frame_i , KeyFrame* frame_j );
+
+    static cv::Point2f getProjection(MapPoint* mp, KeyFrame* current_frame);
+
+    /// 3.1 Frame[i] 与 Frame[k] 之间的基线长计算
+    static double calculate_baseLineDis( KeyFrame* frame_i  , KeyFrame* frame_k );
+
+    /// EXT 4.深度补偿函数
+    static double cal_penalty ( MapPoint* mp , KeyFrame* current_frame );
+
 };
 
 } //namespace ORB_SLAM

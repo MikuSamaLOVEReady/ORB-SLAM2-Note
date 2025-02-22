@@ -34,6 +34,7 @@
 
 #include<mutex>
 
+#pragma GCC optimize ("O0")
 namespace ORB_SLAM2
 {
 
@@ -288,7 +289,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
         MapPoint* pMP = pFrame->mvpMapPoints[i];            /// frame中的特征点 需要在地图中有对应的 实际Mappoint才行
         if(pMP)
         {
-            // Monocular observation 。  /// 单双目可以从
+            // Monocular observation 。  /// 单目 这个值 = -1
             if(pFrame->mvuRight[i]<0)
             {
                 nInitialCorrespondences++;
@@ -326,7 +327,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             else  /// Stereo observation  观察值作为edge操作
             {
                 nInitialCorrespondences++;                  /// 有多少值data（完全取决于，特征点在地图中是否可见）
-                pFrame->mvbOutlier[i] = false;              /// 设置frame外点问题
+                pFrame->mvbOutlier[i] = false;              /// 设置frame中 特征点index = i 为无效值
 
                 //SET EDGE
                 Eigen::Matrix<double,3,1> obs;
@@ -463,6 +464,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();                /// 在Tracking 线程 ->Track(）-> TrackWithMotionModel() || RefKey都会更新
     cv::Mat pose = Converter::toCvMat(SE3quat_recov);
     pFrame->SetPose(pose);                                        /// optimise 之后，更新了【位置姿态】
+
 
     return nInitialCorrespondences-nBad;                               /// 匹配命中个数 - 坏点个数
 }
@@ -1256,6 +1258,163 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 
     return nIn;
 }
+
+
+    /// n = 当前地图点能被多少 Frame看见
+    /// m = 当前所有地图点中，拥有最大可见Frame的地图点，对应的Frame个数
+    /// 返回值越小，越希望选择，返回值越大越不能选
+    float Optimizer:: func_point(int n, int m) {
+        if( m == n) return 1;
+        float result = 1;
+        for (int i = n; i < m; ++i) {
+            if( i == 1) continue;
+            result *= static_cast<float>(n + 1) / static_cast<float>(n - 1) ;
+        }
+        return result;
+    }
+
+    /// 1号函数。 查找当前地图
+    ///  Frame *current_frame 这里应该是局部地图的才可以  TODO： 替换成Map
+    float Optimizer::cal_Point_visibility(MapPoint *mp, Frame *current_frame) {
+        int n  = mp->Observations();
+        int m = current_frame->GetFrameMaxVisibility();
+        return func_point(n , m);
+    }
+
+    float Optimizer::calculateMinCircleRadius(const int width, const int height) {
+        double diagonal = sqrt(height * height + width * width);
+        // 最小圆的半径是对角线长度的一半
+        return diagonal / 2;
+    }
+
+    /// 2号函数
+    int Optimizer::cal_pointNeibor(MapPoint *mp, KeyFrame *current_frame){
+         vector<size_t> indices(0);
+         if( mp->mbTrackInView){
+             const int windowSizeX = 64 / 2; // 半宽度
+             const int windowSizeY = 48 / 2;
+             /// 调用infrust 更新在current_Frame中的投影
+             //current_frame->GetPose()
+             //current_frame->isInFrustum(mp,0.5)
+
+             float u =  mp->mTrackProjX;
+             float v =  mp->mTrackProjX;
+             //int nLastOctave = current_frame.mvKeys[i].octave;
+             /// 获取当前 金字塔层级
+             int index = mp->GetIndexInKeyFrame(current_frame);
+             if( index == -1 ) return -1;    ///  无法计算
+             int cur_level =  current_frame->mvKeysUn[index].octave;
+             /// TOOD: 这里参考ORBmatcher.cc 1479行， 基础阈值可微调
+             /// 将阈值设置为 覆盖矩形的最小圆的半径
+             float th = calculateMinCircleRadius(windowSizeX , windowSizeY);
+             float radius = th*current_frame->mvScaleFactors[cur_level];
+             indices = current_frame->GetFeaturesInArea(u, v, radius);      /// 查看
+         }
+         return indices.size();
+    }
+
+    /// tODO:  计算临近值失效，无法获取
+    int Optimizer::calculate_Point_diversity(MapPoint *mp, KeyFrame *frame_i, KeyFrame *frame_j) {
+        int N1 = cal_pointNeibor(mp , frame_i);
+        int N2 = cal_pointNeibor(mp , frame_j);
+        // 计算 并向上取整
+        double result = log( N1 * N2 + 1);
+        //double result = log( N1  + 1);
+        int ceilResult = static_cast<int>(ceil(result)); /// 向上取整
+        return ceilResult;
+    }
+
+    double Optimizer::calculate_baseLineDis(KeyFrame *frame_i, KeyFrame *frame_k) {
+        auto m1 = frame_i->GetCameraCenter();
+        auto m2 = frame_k->GetCameraCenter();
+        cv::Mat diff = m1 - m2;
+        double distance = cv::norm(diff);
+        double result = 10 / (0.1 * distance + 1);
+        return result;
+    }
+
+    double Optimizer::cal_penalty(MapPoint *mp, KeyFrame *current_frame) {
+        ///获取当前地图点深度
+        cv::Mat world_pos = mp->GetWorldPos();
+        cv::Mat Tcw = current_frame->GetPose();
+        ///  world pos先Roate 后 Transpose
+        cv::Mat MP_Camera_pos = Tcw.rowRange(0,3).colRange(0,3)
+                * world_pos
+                + Tcw.rowRange(0,3).col(3);
+        ///  MP_Camera_pos 获取Z坐标
+        float depth = MP_Camera_pos.at<float>(2);
+        /// TODO：惩罚值计算，需要实验验证
+        double avg_depth = current_frame->GetDepthAVG();
+        double delta_depth = depth - avg_depth;
+        double k = 1.0f;
+        double penalty_value = k * delta_depth * delta_depth * (delta_depth >= 0 ? 1 : -1);
+        return penalty_value;
+    }
+
+    void  Optimizer::SparseOptimization(Frame *pFrame, Map *pMap , KeyFrameDatabase *pKFDB) {
+
+        const int N = pFrame->N;                                        ///当前Frame的特征点（地图点）
+
+        unique_lock<mutex> lock(MapPoint::mGlobalMutex);
+        /// 每个特征点都是一个edge （仅仅是读取这些data 并没有改变mappoint中的data）
+        /// 只对内点做稀疏化处理
+        for(int i=0; i<N; i++)
+        {
+            MapPoint* pMP = pFrame->mvpMapPoints[i];
+            if( pMP && !pFrame->mvbOutlier[i]){
+                /// 1. 计算可见性得分
+                pFrame->mvPointVisSource[i] = cal_Point_visibility(pMP , pFrame);
+                /// 2. 搜索所有相关、关键帧
+                map<KeyFrame*, size_t> associateKF = pMP->GetObservations();
+                //KeyFrame* pKFcov = new KeyFrame(*pFrame, pMap, pKFDB);
+                for( auto it = associateKF.begin() ; it!=associateKF.end() ; ++it){
+                    int sparsity = calculate_Point_diversity(pMP , pFrame->mpReferenceKF , it->first);
+                    pFrame->mvPointSparseSource[i] = make_pair( it->first->mnId, sparsity);
+
+                    /// 基线数值计算
+                    double value = calculate_baseLineDis(pFrame->mpReferenceKF , it->first);
+                    pFrame->mvPointBaseLineSource[it->first] = value;
+                }
+                /// 3. 地图点当前在KF中的深度值
+                //KeyFrame* pKFdep = new KeyFrame(*pFrame, pMap, pKFDB);
+                float depthVa;
+                if( pFrame->mpReferenceKF ){
+                    depthVa = cal_penalty(pMP ,pFrame->mpReferenceKF);
+                }else{
+                    depthVa = INFINITY;     /// 深度无效
+                }
+                pFrame->mvPointDepthSource[i] = depthVa;
+            }
+        }
+
+    }
+
+    cv::Point2f Optimizer::getProjection(MapPoint *mp, KeyFrame *current_frame) {
+            // 获取MapPoint的世界坐标 (3x1 cv::Mat)
+            cv::Mat P_w = mp->GetWorldPos();
+
+            // 获取KeyFrame的世界到相机的位姿 (4x4 cv::Mat) [矩阵变换、并非]
+            cv::Mat Tcw = current_frame->GetPose();
+
+            // 变换到相机坐标系 []
+            cv::Mat P_c = Tcw.rowRange(0, 3).colRange(0, 3) * P_w + Tcw.rowRange(0, 3).col(3);
+
+            // 提取相机坐标分量
+            float X_c = P_c.at<float>(0);
+            float Y_c = P_c.at<float>(1);
+            float Z_c = P_c.at<float>(2);
+
+            // 检查点是否在相机前方
+            if (Z_c <= 0) {
+                return cv::Point2f(-1, -1); // 表示点不可见
+            }
+
+            // 使用内参进行投影·
+            float u = current_frame->fx * X_c / Z_c + current_frame->cx;
+            float v = current_frame->fy * Y_c / Z_c + current_frame->cy;
+
+            return cv::Point2f(u, v);
+    }
 
 
 } //namespace ORB_SLAM

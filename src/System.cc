@@ -71,6 +71,29 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
     cout << "Vocabulary loaded!" << endl << endl;
 
+    /// 全局logger
+//    if( !spdlog::get("Global_logger") ) {
+//        auto now = std::chrono::system_clock::now();
+//        std::stringstream ss;
+//        string Global_filename = "logs/GlobalLog_" + ss.str() + ".txt";
+//        auto file_logger = spdlog::basic_logger_mt("Global_logger", Global_filename);
+//        //spdlog::register_logger(file_logger);
+//        file_logger->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
+//        spdlog::set_default_logger(file_logger);
+//    }
+
+    if (!spdlog::get("Global_logger")) {
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&now_time), "%Y-%m-%d_%H-%M-%S");
+        string Global_filename = "logs/GlobalLog_" + ss.str() + ".txt";
+        auto file_logger = spdlog::basic_logger_mt("Global_logger", Global_filename);
+        spdlog::set_default_logger(file_logger);
+        spdlog::info("Logger initialized.");
+    }
+
+
     //Create KeyFrame Database TODO
     mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
 
@@ -102,6 +125,10 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         mpTracker->SetViewer(mpViewer);
     }
 
+    mpVulkanViewer = new VulkanViewer(this , mpMapDrawer);
+    mptVulkanViewer = new thread(&VulkanViewer::Run, mpVulkanViewer);
+
+    
     //Set pointers between threads
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);

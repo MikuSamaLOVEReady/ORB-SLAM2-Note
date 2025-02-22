@@ -39,6 +39,7 @@
 #include "KeyFrameDatabase.h"
 #include "ORBVocabulary.h"
 #include "Viewer.h"
+#include "VulkanViewer.h"
 
 namespace ORB_SLAM2
 {
@@ -49,6 +50,7 @@ class Map;
 class Tracking;
 class LocalMapping;
 class LoopClosing;
+    class VulkanViewer;
 
 class System
 {
@@ -164,6 +166,10 @@ private:
     std::thread* mptLoopClosing;
     std::thread* mptViewer;
 
+        /// VulkanViewer -LRD
+    VulkanViewer* mpVulkanViewer;
+    std::thread* mptVulkanViewer;
+    
     // Reset flag
     std::mutex mMutexReset;
     bool mbReset;
