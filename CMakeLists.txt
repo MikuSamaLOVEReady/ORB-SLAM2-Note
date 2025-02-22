@@ -2,8 +2,11 @@ cmake_minimum_required(VERSION 2.8)
 project(ORB_SLAM2)
 
 IF(NOT CMAKE_BUILD_TYPE)
-  SET(CMAKE_BUILD_TYPE Release)
+  SET(CMAKE_BUILD_TYPE Debug)
 ENDIF()
+
+#set(CMAKE_BUILD_TYPE Debug)
+#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O1")
 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
 
@@ -26,6 +29,7 @@ else()
    message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
 endif()
 
+set(CMAKE_CXX_STANDARD 17)
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 
 set(CMAKE_PREFIX_PATH "/Users/luoruidi/Desktop/Robot/opencv4.8.1/build_opencv")
@@ -38,17 +42,36 @@ if(NOT OpenCV_FOUND)
    endif()
 endif()
 
+#imgui
+set(IMGUI_DIR ${PROJECT_SOURCE_DIR}/Thirdparty/imgui)
+file(GLOB Imgui_sources
+        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_demo.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp)
+
 find_package(Eigen3 REQUIRED NO_MODULE) #NoMode
 #set(CMAKE_PREFIX_PATH "/Users/luoruidi/Desktop/Robot/Panglin_Pkg/Pangolin")
 find_package(Pangolin CONFIG REQUIRED PATHS "/Users/luoruidi/Desktop/Robot/Panglin_Pkg/Pangolin")
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(spdlog REQUIRED)
+find_package(Vulkan REQUIRED)
+find_package(glfw3 REQUIRED)
+
+message(STATUS "Vulkan Version:= ${Vulkan_LIBRARY}")
+message(STATUS "GLFW Version: ${glfw3_VERSION}")
+
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
 ${PROJECT_SOURCE_DIR}/include
 ${EIGEN3_INCLUDE_DIR}
 ${Pangolin_INCLUDE_DIRS}
+        ${IMGUI_DIR}
+        ${IMGUI_DIR}/backends ..
 )
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
@@ -73,6 +96,9 @@ src/KeyFrameDatabase.cc
 src/Sim3Solver.cc
 src/Initializer.cc
 src/Viewer.cc
+        src/VulkanViewer.cpp
+        ${Imgui_sources}
+        src/VulkanCamera.cpp
 )
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
@@ -91,6 +117,8 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
            ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
            ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
            spdlog::spdlog
+           ${Vulkan_LIBRARIES}
+           glfw
            )
 endif()
 
