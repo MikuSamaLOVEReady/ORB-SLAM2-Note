@@ -428,6 +428,7 @@ void LoopClosing::CorrectLoop()
 
         mnFullBAIdx++;
 
+        /// 如果上一个BA优化还在解算，则直接结束
         if(mpThreadGBA)
         {
             mpThreadGBA->detach();

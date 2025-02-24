@@ -157,17 +157,19 @@ public:
     cv::Mat mDescriptors, mDescriptorsRight;
 
     // MapPoints associated to keypoints, NULL pointer if no association.
-    std::vector<MapPoint*> mvpMapPoints; ///  _Frame中的特征点 能关联到 地图中的landmark（地图点）的个数
+    std::vector<MapPoint*> mvpMapPoints; ///  _Frame中的特征点 能关联到 地图中的landmark（地图点）的个数， index = 图像特征点index
 
     // Flag to identify outlier associations.
-    std::vector<bool> mvbOutlier;       /// 是否是外点
+    std::vector<bool> mvbOutlier;       /// 特征点是否是外点
 
     // 用于表示是否可被稀疏化剔除的点
     std::vector<bool> mvbSparsed;      /// 是否可稀疏化
     std::vector<float> mvPointVisSource;                  /// 记录可见性，值越大越不选，因为被看见的少
-    std::vector<pair< int , int>> mvPointSparseSource;    /// index = 地图点序号 ， <其他共视地图点[i]的帧ID，得分>。 根据这个能干什么？
+    std::vector<int> mvPointSparseSum;                    /// 地图点index[i]在所有共视帧中稀疏值合,越大越筹密
+    std::vector<vector<pair< int , int>>> mvPointSparseSource;    /// index_没有意义，仅作为计数， <其他共视地图点[i]的帧ID，得分> 根据这个能干什么？
     std::unordered_map< KeyFrame* , double> mvPointBaseLineSource;             /// 与本Frame相关的KF，他们之间的距离值
-    std::vector<float> mvPointDepthSource;             /// 每个特征点在最近KF
+    std::vector<double> mvPointDepthSource;             /// 每个特征点在最近KF
+    double avgSparsity = 0.0f;
 
 
     // Keypoints are assigned to cells in a grid to reduce matching

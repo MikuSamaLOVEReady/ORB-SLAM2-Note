@@ -118,7 +118,7 @@ protected:
      cv::Mat mWorldPos;                 /// 世界坐标系中的 世界坐标
 
      // Keyframes observing the point and associated index in keyframe
-     /// 能观察到当前 mappoint的 keyframe 以及在 这一帧中本地图点的index【索引】
+     /// 能观察到当前 mappoint的 keyframe 以及在 这一帧中[本地图点]的index【索引对应在帧中图像特征index】
      std::map<KeyFrame*,size_t> mObservations;
 
      // Mean viewing direction

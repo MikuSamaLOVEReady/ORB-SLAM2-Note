@@ -333,12 +333,16 @@ void Tracking::Track()
                 if( mVelocity.empty() || mCurrentFrame.mnId < mnLastRelocFrameId+2 )
                 {
                     bOK = TrackReferenceKeyFrame();                                  /// 机器没有速度： 初始状态都是用关键帧来 重新track 【利用G2o通过视觉求解】
+                    spdlog::info(" local Track Reference Key " );
                 }
                 else                                                                 /// 机器有速度：
                 {  ///  有速度 且 前后2帧以上
                     bOK = TrackWithMotionModel();                                    ///             1。如果当前有速度 根据运动估计
-                    if(!bOK)
+                    spdlog::info(" local Track Motion model" );
+                    if(!bOK){
+                        spdlog::info(" local Track Reference Key WITH SPEED Motion Failed" );
                         bOK = TrackReferenceKeyFrame();                              ///             2。 运动估计失败后，继续TrackRefKeyFrame
+                    }
                 }
             }
             else
@@ -425,8 +429,11 @@ void Tracking::Track()
         /// 3。 对local map追踪  本质上就是对位姿的再优化（同时定位建图，是对local map做操作）
         if(!mbOnlyTracking)
         {
-            if(bOK)                             ///    追踪成功
+            ///  初步追踪成功（ 根据引用KeyFrame 或者 motionTracking ）
+            if(bOK) {
                 bOK = TrackLocalMap();          ///    更新Cur_Frame ， local_points , 已经可以画新图了
+                spdlog::info(" track local map！{} " , bOK );
+            }
         }
         else        /// 只做tracking操作
         {
@@ -446,7 +453,9 @@ void Tracking::Track()
             mState=LOST;
 
         /// Update drawer [ 这里操作已完成， 优化也已经做完，才开始绘制]
-        mpFrameDrawer->Update(this);            ///TrackLocalMap
+        /// TrackLocalMap 设计完剔除算法
+        SetSparse();
+        mpFrameDrawer->Update(this);
 
         // If tracking were good, check if we insert a keyframe
         /// 4。跟踪成功之后，
@@ -1071,7 +1080,8 @@ bool Tracking::TrackLocalMap()
     // Optimize Pose
     Optimizer::PoseOptimization(&mCurrentFrame);                    /// TODO: 位姿优化结束后，可将KF再次丢入优化
     /// TODO:特征点稀疏化算法
-    Optimizer::SparseOptimization(&mCurrentFrame , mpMap ,mpKeyFrameDB);
+    Optimizer::SparseOptimization(&mCurrentFrame , mpMap ,mpKeyFrameDB);    /// 单帧独立优化
+
     mnMatchesInliers = 0;
 
     // Update MapPoints Statistics
@@ -1293,6 +1303,7 @@ void Tracking::CreateNewKeyFrame()
 }
 
 /// 为viewport中所有可观测到的MP【理论上】调用 IncreaseVisible 计数操作。
+/// 为当前观察到的图像特征点 匹配对应的地图点
 void Tracking::SearchLocalPoints()
 {
     // Do not search map points already matched
@@ -1322,7 +1333,7 @@ void Tracking::SearchLocalPoints()
     for(vector<MapPoint*>::iterator vit=mvpLocalMapPoints.begin(), vend=mvpLocalMapPoints.end(); vit!=vend; vit++)
     {
         MapPoint* pMP = *vit;
-        if(pMP->mnLastFrameSeen == mCurrentFrame.mnId)                    /// 已经在Cur_Frame的地图点_不做投影
+        if(pMP->mnLastFrameSeen == mCurrentFrame.mnId)                    /// 已经在1323行操作过，Cur_Frame的地图点_不做投影
             continue;
         if(pMP->isBad())
             continue;
@@ -1351,14 +1362,14 @@ void Tracking::SearchLocalPoints()
 void Tracking::UpdateLocalMap()
 {
     // This is for visualization
-    mpMap->SetReferenceMapPoints(mvpLocalMapPoints);        ///
+    mpMap->SetReferenceMapPoints(mvpLocalMapPoints);        /// mvpLocalMapPoints  暂存上一帧数据
 
     // Update
     UpdateLocalKeyFrames();     /// 确定与Cur_Frame 最相似的 一个KF（记做 ReferenceKF），于此同时把存在与当前KF相同 mappoint 其他Frame也纳入 mvpLocalKeyFrames
     UpdateLocalPoints();        /// 地图点更新 、 mvpLocalMapPoints
 }
 
-/// 更新地图点
+/// 更新地图点（当前帧周围一定范围内、准备与当前KF观察到的特征点做比较，查找其中的内容）
 void Tracking::UpdateLocalPoints()
 {
     mvpLocalMapPoints.clear();
@@ -1373,12 +1384,13 @@ void Tracking::UpdateLocalPoints()
             MapPoint* pMP = *itMP;
             if(!pMP)
                 continue;
-            if(pMP->mnTrackReferenceForFrame==mCurrentFrame.mnId)
+            if(pMP->mnTrackReferenceForFrame==mCurrentFrame.mnId) /// 地图点是当前帧
                 continue;
             if(!pMP->isBad())
             {
                 mvpLocalMapPoints.push_back(pMP);                           ///  新中产生的 MP 插入处理
-                pMP->mnTrackReferenceForFrame=mCurrentFrame.mnId;           /// mnTrackReferenceForFrame 表明当前地图点正在追踪那个
+                pMP->mnTrackReferenceForFrame=mCurrentFrame.mnId;           /// mnTrackReferenceForFrame
+                /// 表明当前地图点正在被哪个KF追踪
             }
         }
     }
@@ -1432,7 +1444,7 @@ void Tracking::UpdateLocalKeyFrames()
         }
 
         mvpLocalKeyFrames.push_back(it->first);                   /// 只要与 CurFrame有共视关系的。有看到 【KF 存在坏点的可能】
-        pKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;       /// 为那些与CurFrame有共视的pkf， 设置他们
+        pKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;       /// 为那些与CurFrame有共视的pkf， 设置他们当前被谁引用（被当前帧）
     }
 
 
@@ -1605,7 +1617,8 @@ bool Tracking::Relocalization()
                 }
 
                 ///  对当前帧 进行一次局部BA优化  ，此时他已经获得了一批 能与他特征点匹配的的 地图点
-                int nGood = Optimizer::PoseOptimization(&mCurrentFrame);                /// 返回真正有用的内点的个数，内点:对应于当前帧中的特征点与地图点的匹配关系。
+                ///  返回真正有用的内点的个数，内点:对应于当前帧中的特征点与地图点的匹配关系。
+                int nGood = Optimizer::PoseOptimization(&mCurrentFrame); //重定位使用
 
                 if(nGood<10)
                     continue;
@@ -1756,6 +1769,14 @@ void Tracking::InformOnlyTracking(const bool &flag)
 {
     mbOnlyTracking = flag;
 }
+
+    void Tracking::SetSparse() {
+        int N = mCurrentFrame.N;
+        for( int i = 0 ; i<N ; ++i){
+            if( mCurrentFrame.mvPointSparseSum[i] > mCurrentFrame.avgSparsity )
+                mCurrentFrame.mvbSparsed[i] = true;
+        }
+    }
 
 
     //    int Tracking::func_point(int n, int m) {

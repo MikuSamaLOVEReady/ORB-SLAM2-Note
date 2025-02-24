@@ -55,6 +55,9 @@ void LocalMapping::Run()
 
     mbFinished = false;
 
+    /// 稀疏化debug
+    int count = 0;
+
     while(1)
     {
         // Tracking will see that Local Mapping is busy
@@ -88,7 +91,11 @@ void LocalMapping::Run()
             {
                 // Local BA
                 if(mpMap->KeyFramesInMap()>2)
+                {
+                    spdlog::info(" local BA {} counts,  " ,  count);
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
+                    count++;
+                }
 
                 // Check redundant local Keyframes
                 KeyFrameCulling();

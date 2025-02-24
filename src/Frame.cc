@@ -99,8 +99,9 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     mvbOutlier = vector<bool>(N ,false);
     mvbSparsed = vector<bool>(N , false);
     mvPointVisSource = vector<float>(N , INFINITY);                         /// 初始化为均不可选
-    mvPointSparseSource = vector<pair<int , int>>(N);                             ///
-    mvPointDepthSource = vector<float>(N , INFINITY);
+    mvPointSparseSum =  vector<int>(N,INFINITY);
+    /// mvPointSparseSource = vector<pair<int , int>>(N);                             ///
+    mvPointDepthSource = vector<double>(N , INFINITY);
 
 
     // This is done only for the first Frame (or after a change in the calibration)

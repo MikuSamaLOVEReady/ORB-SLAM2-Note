@@ -42,6 +42,7 @@ cv::Mat FrameDrawer::DrawFrame()
     vector<int> vMatches; // Initialization: correspondeces with reference keypoints
     vector<cv::KeyPoint> vCurrentKeys; // KeyPoints in current frame
     vector<bool> vbVO, vbMap; // Tracked MapPoints in current frame
+    vector<bool> vbSparseMappoint;
     int state; // Tracking state
 
     //Copy variables within scoped mutex
@@ -64,6 +65,7 @@ cv::Mat FrameDrawer::DrawFrame()
             vCurrentKeys = mvCurrentKeys;
             vbVO = mvbVO;
             vbMap = mvbMap;
+            vbSparseMappoint = mvbSparsed;
         }
         else if(mState==Tracking::LOST)
         {
@@ -105,9 +107,18 @@ cv::Mat FrameDrawer::DrawFrame()
                 // This is a match to a MapPoint in the map
                 if(vbMap[i])
                 {
-                    cv::rectangle(im,pt1,pt2,cv::Scalar(0,255,0));
-                    cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(0,255,0),-1);
-                    mnTracked++;
+                    /// 被剔除的用样红色表示
+                    if( vbSparseMappoint[i] ){
+                        cv::rectangle(im,pt1,pt2,cv::Scalar(255,0,255));
+                        cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(0,255,0),-1);
+                        mnTracked++;
+                    }else{
+                        /// TODO: 绿色框表示候选特征点
+                        cv::rectangle(im,pt1,pt2,cv::Scalar(0,255,0));
+                        cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(0,255,0),-1);
+                        mnTracked++;
+                    }
+
                 }
                 else // This is match to a "visual odometry" MapPoint created in the last frame
                 {
@@ -115,6 +126,8 @@ cv::Mat FrameDrawer::DrawFrame()
                     cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(255,0,0),-1);
                     mnTrackedVO++;
                 }
+
+
             }
         }
     }
@@ -173,6 +186,7 @@ void FrameDrawer::Update(Tracking *pTracker)
     N = mvCurrentKeys.size();                       // N = 统计特征点个数
     mvbVO = vector<bool>(N,false);
     mvbMap = vector<bool>(N,false);
+    mvbSparsed = vector<bool>(N , false);     /// 可稀疏化标志
     mbOnlyTracking = pTracker->mbOnlyTracking;      // tacking thread的状态被同步？
 
 
@@ -196,8 +210,10 @@ void FrameDrawer::Update(Tracking *pTracker)
                         mvbVO[i]=true;  // 被VO所观察到
                 }
 
-                /// TODO ：  在Optimizer中已经
-                /// if( !pTracker->mCurrentFrame.)
+                /// 稀疏化剔除--- 纳入解算
+                  if( pTracker->mCurrentFrame.mvbSparsed[i] ){
+                      mvbSparsed[i] = true;
+                  }
 
             }
         }

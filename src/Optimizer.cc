@@ -43,6 +43,19 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
 {
     vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
     vector<MapPoint*> vpMP = pMap->GetAllMapPoints();
+    /// TODO:1. 建图
+
+    vector<pair<KeyFrame* ,KeyFrame*>> vpKFpair;
+    for( int i = 0 ; i<vpKFs.size() ; ++i) {
+        std::vector<KeyFrame* >  covsi = vpKFs[i]->GetVectorCovisibleKeyFrames();
+        for( int j = 0 ; j<covsi.size() ; ++j){
+            vpKFpair.emplace_back(vpKFs[i], covsi[j]);
+        }
+    }
+
+    Graph graph(vpMP.size() , vpKFpair.size());
+    spdlog::info(" GBA :  KFpairs{}" , vpKFpair.size());
+    /// TODO：2. 解算
     BundleAdjustment(vpKFs,vpMP,nIterations,pbStopFlag, nLoopKF, bRobust);
 }
 
@@ -327,7 +340,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             else  /// Stereo observation  观察值作为edge操作
             {
                 nInitialCorrespondences++;                  /// 有多少值data（完全取决于，特征点在地图中是否可见）
-                pFrame->mvbOutlier[i] = false;              /// 设置frame中 特征点index = i 为无效值
+                pFrame->mvbOutlier[i] = false;              /// 设置frame中 特征点index = i 为u有效特征点
 
                 //SET EDGE
                 Eigen::Matrix<double,3,1> obs;
@@ -1302,7 +1315,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
              //int nLastOctave = current_frame.mvKeys[i].octave;
              /// 获取当前 金字塔层级
              int index = mp->GetIndexInKeyFrame(current_frame);
-             if( index == -1 ) return -1;    ///  无法计算
+             if( index == -1 ) return 0;    ///  无法计算
              int cur_level =  current_frame->mvKeysUn[index].octave;
              /// TOOD: 这里参考ORBmatcher.cc 1479行， 基础阈值可微调
              /// 将阈值设置为 覆盖矩形的最小圆的半径
@@ -1313,14 +1326,22 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
          return indices.size();
     }
 
-    /// tODO:  计算临近值失效，无法获取
-    int Optimizer::calculate_Point_diversity(MapPoint *mp, KeyFrame *frame_i, KeyFrame *frame_j) {
-        int N1 = cal_pointNeibor(mp , frame_i);
+    /// TODO: 存在当前Frame还没找到RefKeyFrame的情况 , 换成普通Frame会不会更好？
+    ///
+    long long Optimizer::calculate_Point_diversity(MapPoint *mp, KeyFrame *frame_i, KeyFrame *frame_j) {
+        int N1 = cal_pointNeibor(mp , frame_i);         ///
         int N2 = cal_pointNeibor(mp , frame_j);
-        // 计算 并向上取整
-        double result = log( N1 * N2 + 1);
-        //double result = log( N1  + 1);
-        int ceilResult = static_cast<int>(ceil(result)); /// 向上取整
+
+        double result = 0.0f;
+        long long ceilResult = 0;
+        if(N1 != 0){
+            // 计算 并向上取整
+            result = log( N1 * N2 + 1);
+        }else{
+            result = log( N2 + 1);
+        }
+        ceilResult = static_cast<long long>(ceil(result)); /// 向上取整
+        //spdlog::info(" Neibor1 {} , Neibor2 {} ceilResult{} result{}" , N1, N2 , ceilResult, result);
         return ceilResult;
     }
 
@@ -1351,9 +1372,11 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         return penalty_value;
     }
 
+    /// 针对当前帧做稀疏化
     void  Optimizer::SparseOptimization(Frame *pFrame, Map *pMap , KeyFrameDatabase *pKFDB) {
 
         const int N = pFrame->N;                                        ///当前Frame的特征点（地图点）
+        int validCount = 0;                                             /// 有效的稀疏值
 
         unique_lock<mutex> lock(MapPoint::mGlobalMutex);
         /// 每个特征点都是一个edge （仅仅是读取这些data 并没有改变mappoint中的data）
@@ -1364,20 +1387,18 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
             if( pMP && !pFrame->mvbOutlier[i]){
                 /// 1. 计算可见性得分
                 pFrame->mvPointVisSource[i] = cal_Point_visibility(pMP , pFrame);
-                /// 2. 搜索所有相关、关键帧
-                map<KeyFrame*, size_t> associateKF = pMP->GetObservations();
-                //KeyFrame* pKFcov = new KeyFrame(*pFrame, pMap, pKFDB);
-                for( auto it = associateKF.begin() ; it!=associateKF.end() ; ++it){
-                    int sparsity = calculate_Point_diversity(pMP , pFrame->mpReferenceKF , it->first);
-                    pFrame->mvPointSparseSource[i] = make_pair( it->first->mnId, sparsity);
 
-                    /// 基线数值计算
-                    double value = calculate_baseLineDis(pFrame->mpReferenceKF , it->first);
-                    pFrame->mvPointBaseLineSource[it->first] = value;
+                /// 2. 图像层面计算特征点密度（结果是当前帧有关的所有关联帧的总和）
+                int curValue = singleOptimize(pMP , pFrame , i);
+                if( curValue != 0 ){
+                    pFrame->avgSparsity += curValue;
+                    validCount++;
                 }
+                /// 得0分的就保留、计算平均得分，剔除后X%的顶点
+
                 /// 3. 地图点当前在KF中的深度值
                 //KeyFrame* pKFdep = new KeyFrame(*pFrame, pMap, pKFDB);
-                float depthVa;
+                double depthVa;
                 if( pFrame->mpReferenceKF ){
                     depthVa = cal_penalty(pMP ,pFrame->mpReferenceKF);
                 }else{
@@ -1387,9 +1408,11 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
             }
         }
 
+        pFrame->avgSparsity = (pFrame->avgSparsity/validCount) * 0.55;  /// 0.75 密度阈值降低，过滤加强
+        spdlog::info("  ------ Sparsity FINISH COUNT: {} AVG: {} ----- " , validCount , pFrame->avgSparsity);
     }
 
-    cv::Point2f Optimizer::getProjection(MapPoint *mp, KeyFrame *current_frame) {
+    cv::Point2f Optimizer::getProjection(MapPoint *mp, KeyFrame *current_frame ) {
             // 获取MapPoint的世界坐标 (3x1 cv::Mat)
             cv::Mat P_w = mp->GetWorldPos();
 
@@ -1414,6 +1437,34 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
             float v = current_frame->fy * Y_c / Z_c + current_frame->cy;
 
             return cv::Point2f(u, v);
+    }
+
+
+    /// TODO： 是否要用frame自身而不是关联KeyFrame
+    long long Optimizer::singleOptimize( MapPoint* pMP , Frame *pFrame , int index) {
+        /// 2. 搜索所有相关、关键帧
+        map<KeyFrame*, size_t> associateKF = pMP->GetObservations();
+        spdlog::info(" current frame Associate {}" , associateKF.size());
+        long long MapPointSparsity = 0;
+        for( auto it = associateKF.begin() ; it!=associateKF.end() ; ++it){
+            ///  特征点筹密度累加
+            MapPointSparsity += calculate_Point_diversity(pMP , pFrame->mpReferenceKF , it->first);
+
+            /// 基线数值计算
+            double value = calculate_baseLineDis(pFrame->mpReferenceKF , it->first);
+            pFrame->mvPointBaseLineSource[it->first] = value;
+        }
+        /// pFrame->mvPointSparseSource[index] = make_pair( it->first->mnId, sparsity);
+        pFrame->mvPointSparseSum[index] = MapPointSparsity;
+
+        /// DEBUG: logger
+        if( MapPointSparsity != 0){
+            spdlog::info(" currnet Mppoint index:{} Sparsity {}" , index, MapPointSparsity);
+            return MapPointSparsity;
+        }
+        else{
+            return 0;
+        };
     }
 
 

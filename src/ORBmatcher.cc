@@ -42,6 +42,11 @@ ORBmatcher::ORBmatcher(float nnratio, bool checkOri): mfNNratio(nnratio), mbChec
 {
 }
 
+/// 调用 SearchByProjection()：
+///  将局部地图点投影到当前帧图像平面。
+///  在投影点附近（半径 th）搜索特征点，比较 ORB 描述子，找到最佳匹配。
+///  更新 mCurrentFrame.mvpMapPoints，记录新的匹配关系。
+///  意义：通过投影和描述子匹配，建立局部地图点与当前帧特征点的新关联。
 int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoints, const float th)
 {
     int nmatches=0;

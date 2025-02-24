@@ -145,6 +145,7 @@ protected:
 
     bool NeedNewKeyFrame();
     void CreateNewKeyFrame();
+    void SetSparse();
 
     /// min_cost_max_flow 算法组成
 
