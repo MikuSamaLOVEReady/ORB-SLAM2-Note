@@ -125,6 +125,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         mpTracker->SetViewer(mpViewer);
     }
 
+    /// --- Alright Reserved by 罗瑞笛！
     mpVulkanViewer = new VulkanViewer(this , mpMapDrawer);
     mptVulkanViewer = new thread(&VulkanViewer::Run, mpVulkanViewer);
 
@@ -338,6 +339,13 @@ void System::Shutdown()
     {
         mpViewer->RequestFinish();
         while(!mpViewer->isFinished())
+            usleep(5000);
+    }
+
+    if( mpVulkanViewer )
+    {
+        mpVulkanViewer->RequestFinish();
+        while(!mpVulkanViewer->isFinished())
             usleep(5000);
     }
 

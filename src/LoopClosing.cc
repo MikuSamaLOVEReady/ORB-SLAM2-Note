@@ -60,7 +60,7 @@ void LoopClosing::Run()
 
     while(1)
     {
-        // Check if there are keyframes in the queue
+        // Check if there are keyframes in the queue [只有关键帧插入时才会检测回环，不是每一帧！]
         if(CheckNewKeyFrames())
         {
             // Detect loop candidates and check covisibility consistency

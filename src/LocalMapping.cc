@@ -87,7 +87,7 @@ void LocalMapping::Run()
 
             mbAbortBA = false;
 
-            if(!CheckNewKeyFrames() && !stopRequested())    ///如果没有剩余
+            if(!CheckNewKeyFrames() && !stopRequested())    ///如果没有新的KF 并且系统没停止。不停的做局部BA优化
             {
                 // Local BA
                 if(mpMap->KeyFramesInMap()>2)

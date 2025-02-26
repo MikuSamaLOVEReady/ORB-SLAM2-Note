@@ -1276,7 +1276,7 @@ void Tracking::CreateNewKeyFrame()
 
                     /// 记录当前KF中特征点 还没有创建没有对应MP时， 新构建的MP
                     pNewMP->GetWorldPos();
-                    logger->info("New_MapPoint_Pos [{}, {}, {}] , KeyFrame_TraceID: {}", x3D.at<float>(0) , x3D.at<float>(1) , x3D.at<float>(2), KF_trace_id);
+                    //logger->info("New_MapPoint_Pos [{}, {}, {}] , KeyFrame_TraceID: {}", x3D.at<float>(0) , x3D.at<float>(1) , x3D.at<float>(2), KF_trace_id);
                 }
                 else
                 {

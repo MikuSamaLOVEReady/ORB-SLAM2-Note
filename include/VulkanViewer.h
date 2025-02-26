@@ -151,6 +151,7 @@ namespace ORB_SLAM2
 
       void RequestFinish();
       bool CheckFinish();
+      bool isFinished();
 
       uint32_t WIDTH = 800;
       uint32_t HEIGHT = 600;
@@ -346,8 +347,9 @@ namespace ORB_SLAM2
       void HandleMouseButton(int button, int action);
       bool rightMousePressed = false;
 
-
-
+      /// UI绘制
+      void DrawFPSGraph(float deltaTime);
+      void renderPerformance();
 
     };
 

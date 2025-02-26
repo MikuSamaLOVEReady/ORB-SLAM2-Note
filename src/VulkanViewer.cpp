@@ -42,6 +42,7 @@ namespace ORB_SLAM2{
         InitImGui();
         /// main Loop
         mainLoop();
+        mbFinished = true;
     }
 
     VulkanViewer::VulkanViewer(System* pSystem , MapDrawer* mpdrawer): mpSystem(pSystem)
@@ -66,7 +67,7 @@ namespace ORB_SLAM2{
         mbFinishRequested = true;
     }
 
-    /// TOOD:后续轮寻的时候用
+    ///
     bool VulkanViewer::CheckFinish()
     {
         unique_lock<mutex> lock(mMutexFinish);
@@ -214,28 +215,15 @@ namespace ORB_SLAM2{
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            /// 准备
-            ImGui::Begin("Performance");
-            float currentTime = static_cast<float>(glfwGetTime());
-            float deltaTime = currentTime - lastTime;
-            frameCount++;
-            fpsAccumulator += 1.0f / deltaTime; // 计算当前帧的FPS
 
-            if (frameCount >= 500) { // 每 30 帧更新一次 FPS
-                fps = fpsAccumulator / frameCount; // 计算平均 FPS
-                fpsAccumulator = 0.0f; // 归零
-                frameCount = 0;
-            }
-
-           // fps = 1.0f / (currentTime - lastTime);
-            lastTime = currentTime;
-            ImGui::SetWindowFontScale(1.5f);  // 放大 1.5 倍
-            ImGui::Text("FPS: %.1f", fps);
-            ImGui::SetWindowFontScale(1.0f);  // 恢复默认缩放
-            ImGui::End();
+            renderPerformance();
 
 
             drawFrame();
+
+            /// 轮寻退出
+            if(CheckFinish())
+                return;
         }
         vkDeviceWaitIdle(device);
     }
@@ -1581,6 +1569,76 @@ namespace ORB_SLAM2{
                 rightMousePressed = false;
             }
         }
+    }
+
+    bool VulkanViewer::isFinished() {
+        unique_lock<mutex> lock(mMutexFinish);
+        return mbFinished;
+    }
+
+
+    void VulkanViewer::DrawFPSGraph(float deltaTime) {
+        static bool animate = true;
+        ImGui::Checkbox("Animate", &animate);
+
+        static float values[90] = {};
+        static int values_offset = 0;
+        static double refresh_time = 0.0;
+        if (!animate || refresh_time == 0.0)
+            refresh_time = ImGui::GetTime();
+        while (refresh_time < ImGui::GetTime()) // Create data at fixed 60 Hz rate for the demo
+        {
+            //static float phase = 0.0f;
+            values[values_offset] = deltaTime*1000.0f;
+            values_offset = (values_offset + 1) % IM_ARRAYSIZE(values);
+            //phase += 0.10f * values_offset;
+            refresh_time += 1.0f / 60.0f;
+        }
+
+        // Plots can display overlay texts
+        // (in this example, we will display an average value)
+        {
+            char overlay[32];
+            ImGuiIO& io = ImGui::GetIO();
+            sprintf(overlay, "avg Frame %f", io.Framerate);
+            ImGui::PlotLines("Lines", values, IM_ARRAYSIZE(values), values_offset, overlay,
+                             0.0f, 20.0f, ImVec2(0, 80.0f));
+        }
+    }
+
+
+    void VulkanViewer::renderPerformance() {
+        /// 准备
+        ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(300, 800), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Performance & MapInfo");
+        ImGuiIO& io = ImGui::GetIO();
+        float currentTime = static_cast<float>(glfwGetTime());
+        float deltaTime = currentTime - lastTime;
+        frameCount++;
+        fpsAccumulator += 1.0f / deltaTime; // 计算当前帧的FPS
+
+        if (frameCount >= 500) { // 每 500 帧更新一次 FPS 统计过去500帧的操作间隔
+            fps = fpsAccumulator / frameCount; // 计算平均 FPS
+            fpsAccumulator = 0.0f; // 归零
+            frameCount = 0;
+        }
+
+        // fps = 1.0f / (currentTime - lastTime);
+        lastTime = currentTime;
+        ImGui::SetWindowFontScale(1.5f);  // 放大 1.5 倍
+        ImGui::Text("last 500 Frames AVG FPS  : %.1f", fps);
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
+
+        ImGui::Text("Dataset: HM-03");
+        ImGui::Text("MapPoints Count: %.1zu m", mpMapDrawer->mpMap->GetAllMapPoints().size());
+        ImGui::Text("Key Frames Count: %lu",  mpMapDrawer->mpMap->KeyFramesInMap());
+
+        DrawFPSGraph(deltaTime);
+
+        ImGui::SetWindowFontScale(1.0f);  // 恢复默认缩放
+        ImGui::End();
     }
 
 
