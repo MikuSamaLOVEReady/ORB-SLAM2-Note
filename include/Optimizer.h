@@ -57,9 +57,14 @@ public:
                             g2o::Sim3 &g2oS12, const float th2, const bool bFixScale);
 
     /// 稀疏化优化器 --- By 罗瑞笛
-    void static SparseOptimization(Frame* pFrame , Map* pMap , KeyFrameDatabase *pKFDB );
+    void static SparseOptimization(Frame* pFrame );
 
-    static float cal_Point_visibility( MapPoint* mp  , Frame* current_frame );
+    void static SparseOptimizationLocalBA(KeyFrame* pFrame , Map* pMap ,
+                                          list<MapPoint*>& lLocalMapPoints ,  list<KeyFrame*>& lLocalKeyFrames);
+
+    static float cal_Point_visibility( MapPoint* mp  , Frame* current_frame );     /// 单帧优化
+    static float cal_Point_visibility( MapPoint* mp  ,  int maxVis);  /// 多帧局部
+
     static float func_point( int n  , int m );
 
     /// 2.1 Maximum spatial diversity:
@@ -80,10 +85,16 @@ public:
     static double cal_penalty ( MapPoint* mp , KeyFrame* current_frame );
 
     /// 单帧优化
-    static long long singleOptimize(MapPoint* pMP , Frame *pFrame , int index);
+    static long long singleOptimize( MapPoint* pMP , Frame *pFrame , int index);
+    //static long long singleOptimize( MapPoint* pMP , )
 
     ///  针对单次位姿优化 ～ 仅仅从特征点稀疏程度来看
     //   static void MapPointsDensity();
+
+    void static LocalBundleAdjustmentLRD( list<MapPoint*> lLocalMapPoints,
+                                       list<KeyFrame*> lLocalKeyFrames,
+                                        bool *pbStopFlag, Map *pMap ,KeyFrame *pKF);
+
 
 };
 
@@ -100,85 +111,19 @@ public:
     class Graph{
 
     public:
-        Graph( int mapCount , int covisFrameCount):
+        Graph( size_t mapCount , size_t covisFrameCount):
                 mapPointCount(mapCount) , covisKeyFrameCount(covisFrameCount) ,
                 adj(mapCount+covisFrameCount+2){};  /// 0 与 size-1 分别source 与 sink
 
-
-        void addEdege(int from , int to , int cap , int cost){
-            // adj[from].emplace_back(to , cap , cost , )
-            ///  from这里反向ref的值表示，adj[to]这个顶点之前已经有多少条edge了，这里index也是从0开始，刚好目前也没有给adj[to]增加edge，index值正好
-            ///  adj[u][e].rev 从u的第e个边它的另一头是谁。 无向图ref记录另一头是谁
-            ///  to这里 ref则是由于已经给from增加1了，这时候为了获取准确index只好删掉
-            adj[from].emplace_back(to, cap, cost, adj[to].size());
-            adj[to].emplace_back(from , 0 , -cost , adj[from].size()-1);
-        }
+        /// adj[index] index表示图定点的ID
+        /// mapCount --> [ index从 1 开始到 mapCount ]
+        /// [ index从 mapCount+1 -> mapCount+viscount ]
+        void addEdege(int from , int to , int cap , int cost);
 
         /// 顶点的index情况
-        pair<int , int> minCostMaxFlow(int source, int sink , int flowLimit = std::numeric_limits<int>::max() )
-        {
-            int flow = 0;
-            int cost = 0;
-            int sumSize = mapPointCount + covisKeyFrameCount;
+        pair<int , int> minCostMaxFlow(int source, int sink , int flowLimit = std::numeric_limits<int>::max() );
 
-            while( flow < flowLimit ){
-                vector<int> dist( sumSize , std::numeric_limits<int>::max());  ///到达index节点
-                vector<int> prevV(sumSize, -1);  // 前驱节点
-                vector<int> prevE(sumSize, -1);  // 前驱边
-                dist[source] = 0;
-
-                /// 遍历次数设置：迭代 V 次，确保所有顶点的最短路径都被正确计算。这是 Bellman-Ford
-                /// 算法的核心特性，因为最短路径最多包含 V-1 条边，V 次迭代可以保证结果收敛。
-                for( int i = 0 ; i<sumSize ; ++i){
-                    /// 遍历所有顶点，作为可能的路径起点。
-                    for( int u = 0 ; u<sumSize ; ++u){
-                        /// 便利所有u的出边
-                        for( int e = 0 ; e<adj[u].size()  ; ++e ){
-                            Edge& edge = adj[u][e];
-                            ///  dist[u] != 确保顶点 u 已被访问（即从源点可达）。
-                            ///  dist[edge.to] > dist[u] + edge.cost 确保已经更新代价值
-                            ///  edge.capacity>0 此次的edge还有选择次数
-                            if( edge.capacity>0 && dist[u] != std::numeric_limits<int>::max()
-                                && dist[edge.to] > dist[u] + edge.cost)
-                            {
-                                dist[edge.to] = dist[u] + edge.cost;
-                                prevV[edge.to] = u;
-                                prevE[edge.to] = e;
-                            }
-                        }
-                    }
-                }
-
-                /// 无法优化
-                if ( dist[sink] == std::numeric_limits<int>::max() ) break;
-
-                int d = flowLimit - flow;
-                /// 根据所得路径，反向选择
-                for( int v = sink ; v!=source ; v = prevV[v] ){
-                    int u = prevV[v];
-                    int e = prevE[v];
-                    /// 选择沿路过程中，流量capacity最少的那一条edge, 作为本次路径给网络带来的最大消耗值
-                    d = min(d, adj[u][e].capacity);
-                }
-
-                flow += d;                  /// 累计流量消耗
-                cost += d * dist[sink];     /// 累计
-
-                for( int v = sink ; v !=source ; v ){
-                    int u = prevV[v];
-                    int e = prevE[v];
-                    adj[u][e].capacity -= d;     /// 沿路所有edge都被消耗
-                    adj[v][adj[u][e].rev].capacity += d;        /// adj[u][e].rev：反向边的索引，表示从 v 到 u 的边在
-                    ///      与u->v同一条边[只不过反向 v->u] 这个边在 adj[v] 中的位置。
-                }
-            }
-
-            ///
-            return {flow , cost};
-        };
-
-
-        /// 笛杰斯特拉（无法处理负边）
+        /// 笛杰斯特拉（无法处理负边, 舍弃）
         std::vector<int> dijkstra(int source) {
             const int INF = std::numeric_limits<int>::max();
             int sumSize = mapPointCount + covisKeyFrameCount;
@@ -214,11 +159,15 @@ public:
             return dist; // 返回从源节点到所有节点的最短距离
         }
 
+        size_t GetGraphsize();
+        vector<int> GetSelectedMpKF();
     private:
-        int mapPointCount;
-        int covisKeyFrameCount;
+        size_t mapPointCount;
+        size_t covisKeyFrameCount;
 
         vector<vector<Edge>> adj;
+        vector<int> mapSelectedIndex{};
+
     };
 
 

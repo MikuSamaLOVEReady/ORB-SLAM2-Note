@@ -454,7 +454,7 @@ void Tracking::Track()
 
         /// Update drawer [ 这里操作已完成， 优化也已经做完，才开始绘制]
         /// TrackLocalMap 设计完剔除算法
-        SetSparse();
+        // SetSparse(); 单帧位姿优化关闭，该稀疏化也要关闭
         mpFrameDrawer->Update(this);
 
         // If tracking were good, check if we insert a keyframe
@@ -1080,7 +1080,7 @@ bool Tracking::TrackLocalMap()
     // Optimize Pose
     Optimizer::PoseOptimization(&mCurrentFrame);                    /// TODO: 位姿优化结束后，可将KF再次丢入优化
     /// TODO:特征点稀疏化算法
-    Optimizer::SparseOptimization(&mCurrentFrame , mpMap ,mpKeyFrameDB);    /// 单帧独立优化
+    /// Optimizer::SparseOptimization(&mCurrentFrame);    /// 单帧独立优化
 
     mnMatchesInliers = 0;
 

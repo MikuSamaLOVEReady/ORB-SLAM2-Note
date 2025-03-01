@@ -43,19 +43,6 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
 {
     vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
     vector<MapPoint*> vpMP = pMap->GetAllMapPoints();
-    /// TODO:1. 建图
-
-    vector<pair<KeyFrame* ,KeyFrame*>> vpKFpair;
-    for( int i = 0 ; i<vpKFs.size() ; ++i) {
-        std::vector<KeyFrame* >  covsi = vpKFs[i]->GetVectorCovisibleKeyFrames();
-        for( int j = 0 ; j<covsi.size() ; ++j){
-            vpKFpair.emplace_back(vpKFs[i], covsi[j]);
-        }
-    }
-
-    Graph graph(vpMP.size() , vpKFpair.size());
-    spdlog::info(" GBA :  KFpairs{}" , vpKFpair.size());
-    /// TODO：2. 解算
     BundleAdjustment(vpKFs,vpMP,nIterations,pbStopFlag, nLoopKF, bRobust);
 }
 
@@ -1294,6 +1281,13 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         return func_point(n , m);
     }
 
+    /// local BA时 所用1号函数
+    float Optimizer::cal_Point_visibility(MapPoint *mp , int maxVis) {
+        int n  = mp->Observations();
+        return func_point(n , maxVis);
+    }
+
+
     float Optimizer::calculateMinCircleRadius(const int width, const int height) {
         double diagonal = sqrt(height * height + width * width);
         // 最小圆的半径是对角线长度的一半
@@ -1373,7 +1367,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     }
 
     /// 针对当前帧做稀疏化
-    void  Optimizer::SparseOptimization(Frame *pFrame, Map *pMap , KeyFrameDatabase *pKFDB) {
+    void  Optimizer::SparseOptimization(Frame *pFrame ) {
 
         const int N = pFrame->N;                                        ///当前Frame的特征点（地图点）
         int validCount = 0;                                             /// 有效的稀疏值
@@ -1465,6 +1459,488 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         else{
             return 0;
         };
+    }
+
+
+
+    void Optimizer::SparseOptimizationLocalBA(KeyFrame *pFrame, Map* pMap ,
+                                              list<MapPoint*>& lLocalMapPoints ,
+                                              list<KeyFrame*>& lLocalKeyFrames) {
+
+        std::vector<MapPoint*> allMapPoints {  };
+        std::vector<KeyFrame*> allKeyFrames { pFrame->GetVectorCovisibleKeyFrames() };      /// 仅考虑与当前KF有关的其他Frame
+
+        /// 收集地图点
+        for(auto lit=allKeyFrames.begin() , lend=allKeyFrames.end(); lit!=lend; lit++)
+        {
+            vector<MapPoint*> vpMPs = (*lit)->GetMapPointMatches();
+            for(auto vit=vpMPs.begin(), vend=vpMPs.end(); vit!=vend; vit++)
+            {
+                MapPoint* pMP = *vit;
+                if(pMP)
+                    if(!pMP->isBad())
+                        if(pMP->mnBALocalForKF!=pFrame->mnId)
+                        {
+                            allMapPoints.push_back(pMP);
+                            pMP->mnBALocalForKF=pFrame->mnId;
+                        }
+            }
+        }
+
+        /// 最大共视值
+        int maxVisibility = 0;
+        for( auto it = allMapPoints.begin() ; it!=allMapPoints.end() ; ++it ){
+            MapPoint* pMP = *it;
+            if( pMP ){
+                maxVisibility =  maxVisibility > pMP->Observations() ? maxVisibility : pMP->Observations();
+            }
+        }
+
+        int allKFpairCount = allKeyFrames.size() * (allKeyFrames.size()-1) / 2;
+        Graph graph(allMapPoints.size() , allKFpairCount );
+        /// TODO:1. 建图
+        // 存储mp对应的KeyFramePair的值
+        std::map<pair<KeyFrame*,KeyFrame*> , long long>  SparsityPair{};
+        for( int i=0 ; i < allMapPoints.size() ; ++i ) {
+
+            MapPoint* mp = allMapPoints[i];
+            mp->mvPointVisSource = cal_Point_visibility(allMapPoints[i],maxVisibility);
+            int mpCapN = mp->GetFound();
+            /// 建图1：链接 source 与 Mappoint
+            graph.addEdege(0 , i+1 , mpCapN/2+1 , mp->mvPointVisSource );
+            spdlog::info("  ------ MCMF capacity: {}  ----- " , mpCapN );
+
+            /// 2. 图像层面计算特征点密度（结果是当前帧有关的所有关联帧的总和） O(n^2)
+            for( int it_x = 0 ; it_x < allKeyFrames.size() ; ++it_x){
+                for( int it_next =  it_x+1 ; it_next < allKeyFrames.size()  ; ++it_next ) {
+
+                    long long diversity_value = calculate_Point_diversity(mp ,
+                                                                          allKeyFrames[it_x] , allKeyFrames[it_next] );
+                    /// diversity 存在值，建图2： 为图添加 {顶点->KF对} 的edege
+                    if( diversity_value != 0 ){
+                        graph.addEdege( i+1 , allMapPoints.size()+it_x+1 , 1 , diversity_value);
+                    }
+
+                    /// 建图3： { KF对 -> end } 基线代价控制
+                    /// 建图4： 地图点在新KF的深度
+                    double depthVa = cal_penalty(mp ,pFrame);
+                    double baseLineDis = calculate_baseLineDis(allKeyFrames[it_x] , allKeyFrames[it_next] );
+                    graph.addEdege( allMapPoints.size()+it_x+1, graph.GetGraphsize()-1 , 1 , baseLineDis+depthVa);
+                }
+            }
+        }
+
+
+        /// TODO：2. 地图解算 , 提取关键帧与地图点
+        // mapSelectedIndex
+        graph.minCostMaxFlow(0 , graph.GetGraphsize()-1 , 10000);
+        auto ans = graph.GetSelectedMpKF();
+
+        /// 根据index回推 KF 与 MapPoint
+        for( auto it = ans.begin() ; it!=ans.end() ;++it){
+                int index = *it;
+                /// source 与 sink 点无视
+                if( index == 0 || index == graph.GetGraphsize()-1 ) continue;
+
+                /// 选择MapPoint ,对应index为allMapPoints 中的index
+                if( index <= allMapPoints.size() ){
+                    lLocalMapPoints.push_back(allMapPoints[index]);
+                }
+
+                /// 选择KF
+                if( index <= graph.GetGraphsize()-2 ){
+                    index -= allMapPoints.size();   /// 减去地图点偏移
+                    lLocalKeyFrames.push_back(allKeyFrames[index]);
+                }
+        }
+
+    }
+
+    void Optimizer::LocalBundleAdjustmentLRD(list<MapPoint *> lLocalMapPoints, list<KeyFrame *> lLocalKeyFrames,
+                                                 bool *pbStopFlag, Map *pMap , KeyFrame *pKF)
+    {
+        // Fixed Keyframes. Keyframes that see Local MapPoints but that are not Local Keyframes
+        list<KeyFrame*> lFixedCameras;
+        for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
+        {
+            map<KeyFrame*,size_t> observations = (*lit)->GetObservations();
+            for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+            {
+                KeyFrame* pKFi = mit->first;
+
+                if(pKFi->mnBALocalForKF!=pKF->mnId && pKFi->mnBAFixedForKF!=pKF->mnId)
+                {
+                    pKFi->mnBAFixedForKF=pKF->mnId;
+                    if(!pKFi->isBad())
+                        lFixedCameras.push_back(pKFi);
+                }
+            }
+        }
+
+        // Setup optimizer
+        g2o::SparseOptimizer optimizer;
+        g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
+
+        linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolver_6_3::PoseMatrixType>();
+
+        g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
+
+        g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+        optimizer.setAlgorithm(solver);
+
+        if(pbStopFlag)
+            optimizer.setForceStopFlag(pbStopFlag);
+
+        unsigned long maxKFid = 0;
+
+        // Set Local KeyFrame vertices
+        for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
+        {
+            KeyFrame* pKFi = *lit;
+            g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
+            vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
+            vSE3->setId(pKFi->mnId);
+            vSE3->setFixed(pKFi->mnId==0);
+            optimizer.addVertex(vSE3);
+            if(pKFi->mnId>maxKFid)
+                maxKFid=pKFi->mnId;
+        }
+
+        // Set Fixed KeyFrame vertices
+        for(list<KeyFrame*>::iterator lit=lFixedCameras.begin(), lend=lFixedCameras.end(); lit!=lend; lit++)
+        {
+            KeyFrame* pKFi = *lit;
+            g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
+            vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
+            vSE3->setId(pKFi->mnId);
+            vSE3->setFixed(true);
+            optimizer.addVertex(vSE3);
+            if(pKFi->mnId>maxKFid)
+                maxKFid=pKFi->mnId;
+        }
+
+        // Set MapPoint vertices
+        const int nExpectedSize = (lLocalKeyFrames.size()+lFixedCameras.size())*lLocalMapPoints.size();
+
+        vector<g2o::EdgeSE3ProjectXYZ*> vpEdgesMono;
+        vpEdgesMono.reserve(nExpectedSize);
+
+        vector<KeyFrame*> vpEdgeKFMono;
+        vpEdgeKFMono.reserve(nExpectedSize);
+
+        vector<MapPoint*> vpMapPointEdgeMono;
+        vpMapPointEdgeMono.reserve(nExpectedSize);
+
+        vector<g2o::EdgeStereoSE3ProjectXYZ*> vpEdgesStereo;
+        vpEdgesStereo.reserve(nExpectedSize);
+
+        vector<KeyFrame*> vpEdgeKFStereo;
+        vpEdgeKFStereo.reserve(nExpectedSize);
+
+        vector<MapPoint*> vpMapPointEdgeStereo;
+        vpMapPointEdgeStereo.reserve(nExpectedSize);
+
+        const float thHuberMono = sqrt(5.991);
+        const float thHuberStereo = sqrt(7.815);
+
+        for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
+        {
+            MapPoint* pMP = *lit;
+            g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
+            vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+            int id = pMP->mnId+maxKFid+1;
+            vPoint->setId(id);
+            vPoint->setMarginalized(true);
+            optimizer.addVertex(vPoint);
+
+            const map<KeyFrame*,size_t> observations = pMP->GetObservations();
+
+            //Set edges
+            for(map<KeyFrame*,size_t>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+            {
+                KeyFrame* pKFi = mit->first;
+
+                if(!pKFi->isBad())
+                {
+                    const cv::KeyPoint &kpUn = pKFi->mvKeysUn[mit->second];
+
+                    // Monocular observation
+                    if(pKFi->mvuRight[mit->second]<0)
+                    {
+                        Eigen::Matrix<double,2,1> obs;
+                        obs << kpUn.pt.x, kpUn.pt.y;
+
+                        g2o::EdgeSE3ProjectXYZ* e = new g2o::EdgeSE3ProjectXYZ();
+
+                        e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+                        e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
+                        e->setMeasurement(obs);
+                        const float &invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
+                        e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+
+                        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                        e->setRobustKernel(rk);
+                        rk->setDelta(thHuberMono);
+
+                        e->fx = pKFi->fx;
+                        e->fy = pKFi->fy;
+                        e->cx = pKFi->cx;
+                        e->cy = pKFi->cy;
+
+                        optimizer.addEdge(e);
+                        vpEdgesMono.push_back(e);
+                        vpEdgeKFMono.push_back(pKFi);
+                        vpMapPointEdgeMono.push_back(pMP);
+                    }
+                    else // Stereo observation
+                    {
+                        Eigen::Matrix<double,3,1> obs;
+                        const float kp_ur = pKFi->mvuRight[mit->second];
+                        obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
+
+                        g2o::EdgeStereoSE3ProjectXYZ* e = new g2o::EdgeStereoSE3ProjectXYZ();
+
+                        e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+                        e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
+                        e->setMeasurement(obs);
+                        const float &invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
+                        Eigen::Matrix3d Info = Eigen::Matrix3d::Identity()*invSigma2;
+                        e->setInformation(Info);
+
+                        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                        e->setRobustKernel(rk);
+                        rk->setDelta(thHuberStereo);
+
+                        e->fx = pKFi->fx;
+                        e->fy = pKFi->fy;
+                        e->cx = pKFi->cx;
+                        e->cy = pKFi->cy;
+                        e->bf = pKFi->mbf;
+
+                        optimizer.addEdge(e);
+                        vpEdgesStereo.push_back(e);
+                        vpEdgeKFStereo.push_back(pKFi);
+                        vpMapPointEdgeStereo.push_back(pMP);
+                    }
+                }
+            }
+        }
+
+        if(pbStopFlag)
+            if(*pbStopFlag)
+                return;
+
+        optimizer.initializeOptimization();
+        optimizer.optimize(5);
+
+        bool bDoMore= true;
+
+        if(pbStopFlag)
+            if(*pbStopFlag)
+                bDoMore = false;
+
+        if(bDoMore)
+        {
+
+            // Check inlier observations
+            for(size_t i=0, iend=vpEdgesMono.size(); i<iend;i++)
+            {
+                g2o::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
+                MapPoint* pMP = vpMapPointEdgeMono[i];
+
+                if(pMP->isBad())
+                    continue;
+
+                if(e->chi2()>5.991 || !e->isDepthPositive())
+                {
+                    e->setLevel(1);
+                }
+
+                e->setRobustKernel(0);
+            }
+
+            for(size_t i=0, iend=vpEdgesStereo.size(); i<iend;i++)
+            {
+                g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
+                MapPoint* pMP = vpMapPointEdgeStereo[i];
+
+                if(pMP->isBad())
+                    continue;
+
+                if(e->chi2()>7.815 || !e->isDepthPositive())
+                {
+                    e->setLevel(1);
+                }
+
+                e->setRobustKernel(0);
+            }
+
+            // Optimize again without the outliers
+
+            optimizer.initializeOptimization(0);
+            optimizer.optimize(10);
+
+        }
+
+        vector<pair<KeyFrame*,MapPoint*> > vToErase;
+        vToErase.reserve(vpEdgesMono.size()+vpEdgesStereo.size());
+
+        // Check inlier observations
+        for(size_t i=0, iend=vpEdgesMono.size(); i<iend;i++)
+        {
+            g2o::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
+            MapPoint* pMP = vpMapPointEdgeMono[i];
+
+            if(pMP->isBad())
+                continue;
+
+            if(e->chi2()>5.991 || !e->isDepthPositive())
+            {
+                KeyFrame* pKFi = vpEdgeKFMono[i];
+                vToErase.push_back(make_pair(pKFi,pMP));
+            }
+        }
+
+        for(size_t i=0, iend=vpEdgesStereo.size(); i<iend;i++)
+        {
+            g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
+            MapPoint* pMP = vpMapPointEdgeStereo[i];
+
+            if(pMP->isBad())
+                continue;
+
+            if(e->chi2()>7.815 || !e->isDepthPositive())
+            {
+                KeyFrame* pKFi = vpEdgeKFStereo[i];
+                vToErase.push_back(make_pair(pKFi,pMP));
+            }
+        }
+
+        // Get Map Mutex
+        unique_lock<mutex> lock(pMap->mMutexMapUpdate);
+
+        if(!vToErase.empty())
+        {
+            for(size_t i=0;i<vToErase.size();i++)
+            {
+                KeyFrame* pKFi = vToErase[i].first;
+                MapPoint* pMPi = vToErase[i].second;
+                pKFi->EraseMapPointMatch(pMPi);
+                pMPi->EraseObservation(pKFi);
+            }
+        }
+
+        // Recover optimized data
+
+        //Keyframes
+        for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
+        {
+            KeyFrame* pKF = *lit;
+            g2o::VertexSE3Expmap* vSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKF->mnId));
+            g2o::SE3Quat SE3quat = vSE3->estimate();
+            pKF->SetPose(Converter::toCvMat(SE3quat));
+        }
+
+        //Points
+        for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
+        {
+            MapPoint* pMP = *lit;
+            g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId+maxKFid+1));
+            pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
+            pMP->UpdateNormalAndDepth();
+        }
+
+    }
+
+
+    pair<int, int> Graph::minCostMaxFlow(int source, int sink, int flowLimit) {
+
+            int flow = 0;
+            int cost = 0;
+            int sumSize = mapPointCount + covisKeyFrameCount;
+
+            while( flow < flowLimit ){
+                vector<int> dist( sumSize , std::numeric_limits<int>::max());  ///到达index节点
+                vector<int> prevV(sumSize, 0);  // 前驱节点
+                vector<int> prevE(sumSize, 0);  // 前驱边
+                dist[source] = 0;
+
+                /// 遍历次数设置：迭代 V 次，确保所有顶点的最短路径都被正确计算。这是 Bellman-Ford
+                /// 算法的核心特性，因为最短路径最多包含 V-1 条边，V 次迭代可以保证结果收敛。
+                for( int i = 0 ; i<sumSize ; ++i){
+                    /// 遍历所有顶点，作为可能的路径起点。
+                    for( int u = 0 ; u<sumSize ; ++u){
+                        /// 便利所有u的出边
+                        for( int e = 0 ; e<adj[u].size()  ; ++e ){
+                            Edge& edge = adj[u][e];
+                            ///  dist[u] != 确保顶点 u 已被访问（即从源点可达）。
+                            ///  dist[edge.to] > dist[u] + edge.cost 确保已经更新代价值
+                            ///  edge.capacity>0 此次的edge还有选择次数
+                            if( edge.capacity>0 && dist[u] != std::numeric_limits<int>::max()
+                                && dist[edge.to] > dist[u] + edge.cost)
+                            {
+                                dist[edge.to] = dist[u] + edge.cost;
+                                prevV[edge.to] = u;
+                                prevE[edge.to] = e;
+                                flow += edge.capacity;
+                                spdlog::info(" MCMF: accumulate Capacity:{} " , edge.capacity);
+                            }
+                        }
+                    }
+                }
+
+                /// 无法优化
+                if ( dist[sink] == std::numeric_limits<int>::max() ) break;
+
+                int d = flowLimit - flow;
+                /// 根据所得路径，反向选择
+                for( int v = sink ; v!=source ; v = prevV[v] ){
+                    if( v < sumSize ){
+                        int u = prevV[v];
+                        int e = prevE[v];           /// 访存，访到垃圾空间。TODO：解算存在问题
+                        /// 选择沿路过程中，流量capacity最少的那一条edge, 作为本次路径给网络带来的最大消耗值
+                        d = min(d, adj[u][e].capacity);
+                    }
+                }
+
+
+                /// 更新消耗准备下次解算
+                flow += d;                  /// 累计流量消耗
+                cost += d * dist[sink];     /// 累计
+                for( int v = sink ; v !=source ; v =  prevV[v] ){
+                    if( v < sumSize ) {
+                        int u = prevV[v];
+                        int e = prevE[v];
+                        adj[u][e].capacity -= d;     /// 沿路所有edge都被消耗
+                        adj[v][adj[u][e].rev].capacity += d;        /// adj[u][e].rev：反向边的索引，表示从 v 到 u 的边在
+                        ///      与u->v同一条边[只不过反向 v->u] 这个边在 adj[v] 中的位置。
+
+                        /// TODO： 存储路径
+                        mapSelectedIndex.push_back(v);
+                    }
+                }
+            }
+
+
+            spdlog::info(" MCMF: flow:{} , cost:{} , selectedPoints {}" , flow , cost , mapSelectedIndex.size());
+            return {flow , cost};
+    }
+
+    void Graph::addEdege(int from, int to, int cap, int cost) {
+        // adj[from].emplace_back(to , cap , cost , )
+        ///  from这里反向ref的值表示，adj[to]这个顶点之前已经有多少条edge了，这里index也是从0开始，刚好目前也没有给adj[to]增加edge，index值正好
+        ///  adj[u][e].rev 从u的第e个边它的另一头是谁。 无向图ref记录另一头GetGraphsize是谁
+        ///  to这里 ref则是由于已经给from增加1了，这时候为了获取准确index只好删掉
+        adj[from].emplace_back(to, cap, cost, adj[to].size());
+        adj[to].emplace_back(from , 0 , -cost , adj[from].size()-1);
+    }
+
+    size_t Graph::GetGraphsize() {
+        return adj.size();
+    }
+
+    vector<int> Graph::GetSelectedMpKF() {
+        return mapSelectedIndex;
     }
 
 

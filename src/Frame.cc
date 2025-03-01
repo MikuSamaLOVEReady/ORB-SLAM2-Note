@@ -158,6 +158,14 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
     ComputeStereoFromRGBD(imDepth);
 
+    mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));       /// 一个特征
+    mvbOutlier = vector<bool>(N ,false);
+    mvbSparsed = vector<bool>(N , false);
+    mvPointVisSource = vector<float>(N , INFINITY);                         /// 初始化为均不可选
+    mvPointSparseSum =  vector<int>(N,INFINITY);
+    /// mvPointSparseSource = vector<pair<int , int>>(N);                             ///
+    mvPointDepthSource = vector<double>(N , INFINITY);
+
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
     mvbOutlier = vector<bool>(N,false);
 

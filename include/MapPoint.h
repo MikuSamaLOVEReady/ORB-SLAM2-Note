@@ -109,6 +109,11 @@ public:
     cv::Mat mPosGBA;
     long unsigned int mnBAGlobalForKF;
 
+    /// 稀疏化解算
+    float mvPointVisSource;   /// 1.公式1
+    //long long MapPointSparsity; /// 针对某个Frame Pair来说的
+
+
 
     static std::mutex mGlobalMutex;
 
@@ -132,8 +137,8 @@ protected:
      KeyFrame* mpRefKF;         /// 参考帧是什么意思？ 当构建出【三角化出】当前地图点时的对应keyframe
 
      // Tracking counters
-     int mnVisible; /// 理论（从距离的）
-     int mnFound;   /// 实际 观察到本MP的 frame
+     int mnVisible; /// 理论（从距离的）[总数]
+     int mnFound;   /// 实际 观察到本MP的 frame [真实情况]
 
      // Bad flag (we do not currently erase MapPoint from memory)
      /// 例如由于视觉上的失效、被检测为外点等。 先标记、后删除
@@ -146,6 +151,7 @@ protected:
      float mfMaxDistance;   ///
 
      Map* mpMap;
+
 
      std::mutex mMutexPos;
      std::mutex mMutexFeatures;

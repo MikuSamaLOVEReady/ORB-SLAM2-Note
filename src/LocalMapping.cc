@@ -92,7 +92,14 @@ void LocalMapping::Run()
                 // Local BA
                 if(mpMap->KeyFramesInMap()>2)
                 {
+                    /*
                     spdlog::info(" local BA {} counts,  " ,  count);
+                    list<MapPoint*> lLocalMapPoints{};
+                    list<KeyFrame*> lLocalKeyFrames{};
+                    Optimizer::SparseOptimizationLocalBA( mpCurrentKeyFrame,mpMap, lLocalMapPoints , lLocalKeyFrames);    /// 过滤 localMP 与 localKF
+                    Optimizer::LocalBundleAdjustmentLRD(lLocalMapPoints , lLocalKeyFrames,&mbAbortBA, mpMap,mpCurrentKeyFrame);
+                    spdlog::info(" Filted results localMP {} counts, localKF {} counts  " ,  lLocalMapPoints.size() , lLocalKeyFrames.size());
+                    */
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
                     count++;
                 }

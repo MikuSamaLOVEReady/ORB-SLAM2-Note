@@ -211,10 +211,10 @@ void FrameDrawer::Update(Tracking *pTracker)
                 }
 
                 /// 稀疏化剔除--- 纳入解算
+
                   if( pTracker->mCurrentFrame.mvbSparsed[i] ){
                       mvbSparsed[i] = true;
                   }
-
             }
         }
     }

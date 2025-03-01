@@ -636,7 +636,8 @@ namespace ORB_SLAM2{
             createInfo.subresourceRange.baseArrayLayer = 0;         /// layer 双目设置
             createInfo.subresourceRange.layerCount = 1;
 
-            if ( vkCreateImageView( device , &createInfo , nullptr , &swapChainImageViews[i]) != VK_SUCCESS ) {
+            if ( vkCreateImageView( device , &createInfo , nullptr
+                                    , &swapChainImageViews[i]) != VK_SUCCESS ) {
                 throw std::runtime_error("failed to create image views");
             }
         }
@@ -682,7 +683,7 @@ namespace ORB_SLAM2{
         VkRenderPassCreateInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         renderPassInfo.attachmentCount = 1;                                             /// RT的个数在这里设置 与 RT类型必须强制匹配
-        renderPassInfo.pAttachments = &colorAttachments;
+        renderPassInfo.pAttachments = &colorAttachments;                                /// 无论几个Pass ， 他们进来与离开的时候操作均统一
         renderPassInfo.subpassCount = 1;
         renderPassInfo.pSubpasses = &subpass;
         renderPassInfo.dependencyCount = 1;                                             /// 不同subpass之间切换需求
@@ -836,7 +837,7 @@ namespace ORB_SLAM2{
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;                  /// 通过SetLayout 【设置全局变量 uniforms】
+        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;                  /// 通过SetLayout 【设置全局变量 uniforms ，为vertex shader 也为 framentshader】
         pipelineLayoutInfo.pushConstantRangeCount = 0;
         pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
