@@ -60,7 +60,8 @@ public:
     void static SparseOptimization(Frame* pFrame );
 
     void static SparseOptimizationLocalBA(KeyFrame* pFrame , Map* pMap ,
-                                          list<MapPoint*>& lLocalMapPoints ,  list<KeyFrame*>& lLocalKeyFrames);
+                                          list<MapPoint*>& lLocalMapPoints ,
+                                          set<KeyFrame*>& lLocalKeyFrames);
 
     static float cal_Point_visibility( MapPoint* mp  , Frame* current_frame );     /// 单帧优化
     static float cal_Point_visibility( MapPoint* mp  ,  int maxVis);  /// 多帧局部
